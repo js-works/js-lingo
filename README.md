@@ -220,7 +220,7 @@ type I18nConfig = {
   getFallbackLocales?(): string[];
   onFallbackLocalesChange?(fn: () => void): () => void;
 
-  onAddTexts?(locale: string, namespace: string, key: string): void;
+  onSetTexts?(locale: string, namespace: string, key: string): void;
 };
 ```
 

@@ -93,7 +93,7 @@ type I18nConfig = {
   onPrimaryLocaleChange?(listener: ChangeListener): Unsubscribe;
   getFallbackLocales?(): Locale[];
   onFallbackLocalesChange?(listener: ChangeListener): Unsubscribe;
-  onAddTexts?(locale: Locale, namespace: NamespaceId, key: TextKey): void;
+  onSetTexts?(locale: Locale, namespace: NamespaceId, key: TextKey): void;
   // More to come in futue.
 };
 
@@ -283,8 +283,8 @@ class I18nImpl implements I18n {
           texts[key] = value;
           const config = this.#getConfig();
 
-          if (config.onAddTexts) {
-            config.onAddTexts(locale, namespaceKey, key);
+          if (config.onSetTexts) {
+            config.onSetTexts(locale, namespaceKey, key);
           }
         }
       }
@@ -421,9 +421,9 @@ class I18nImpl implements I18n {
     console.log(this.#textsToSet?.length);
 
     if (this.#textsToSet) {
-      const textsToAdd = this.#textsToSet;
+      const textsToSet = this.#textsToSet;
       this.#textsToSet = null;
-      for (const texts of textsToAdd) {
+      for (const texts of textsToSet) {
         this.setTexts(texts);
       }
     }
