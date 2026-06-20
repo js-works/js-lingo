@@ -81,7 +81,7 @@ type I18n = {
   ): string;
 
   getLocalizer(locale: Locale): Localizer;
-  addTexts(texts: Record<Locale, NamespaceTexts[]>): void;
+  setTexts(texts: Record<Locale, NamespaceTexts[]>): void;
   getPrimaryLocale(): Locale;
   onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe;
   getFallbackLocales(): Locale[];
@@ -234,21 +234,21 @@ class I18nImpl implements I18n {
   #dict: Record<Locale, Record<NamespaceId, Record<string, LocalizedText>>> =
     createRecord();
   #localizerByLocale: Record<Locale, Localizer> = createRecord();
-  #textsToAdd: Record<Locale, NamespaceTexts[]>[] | null;
+  #textsToSet: Record<Locale, NamespaceTexts[]>[] | null;
 
-  constructor(getConfig: () => I18nConfig, addTextsLazily = false) {
+  constructor(getConfig: () => I18nConfig, setTextsLazily = false) {
     this.#getConfig = getConfig;
-    this.#textsToAdd = addTextsLazily ? [] : null;
+    this.#textsToSet = setTextsLazily ? [] : null;
   }
 
-  addTexts(...bundles: LocaleTexts[]): void {
+  setTexts(...bundles: LocaleTexts[]): void {
     if (bundles.length === 0) {
       return;
     }
 
     if (bundles.length > 1) {
       for (const bundle of bundles) {
-        this.addTexts(bundle);
+        this.setTexts(bundle);
       }
 
       return;
@@ -256,8 +256,8 @@ class I18nImpl implements I18n {
 
     const texts = bundles[0];
 
-    if (this.#textsToAdd) {
-      this.#textsToAdd.push(texts);
+    if (this.#textsToSet) {
+      this.#textsToSet.push(texts);
       return;
     }
 
@@ -418,13 +418,13 @@ class I18nImpl implements I18n {
     }
 
     this.#config = this.#getConfig() ?? {};
-    console.log(this.#textsToAdd?.length);
+    console.log(this.#textsToSet?.length);
 
-    if (this.#textsToAdd) {
-      const textsToAdd = this.#textsToAdd;
-      this.#textsToAdd = null;
+    if (this.#textsToSet) {
+      const textsToAdd = this.#textsToSet;
+      this.#textsToSet = null;
       for (const texts of textsToAdd) {
-        this.addTexts(texts);
+        this.setTexts(texts);
       }
     }
   }

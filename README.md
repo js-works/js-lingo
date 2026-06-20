@@ -86,7 +86,7 @@ import { createI18n } from "js-lingo";
 
 const i18n = createI18n();
 
-i18n.registerTexts(texts);
+i18n.setTexts(texts);
 ```
 
 ---
@@ -206,7 +206,7 @@ const texts = defineTexts({
 - createI18n(config?) – create isolated instance
 - getI18n() – global singleton instance
 - initI18n(config) – initialize global config once
-- registerTexts(...) – add translations
+- setTexts(...) – add translations
 
 ---
 
