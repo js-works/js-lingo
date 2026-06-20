@@ -1,7 +1,7 @@
 export {
+  bundleTexts,
   createI18n,
   createNamespace,
-  defineTexts,
   getI18n,
   initI18n,
   localize,
@@ -220,7 +220,7 @@ function localize(host: LocalizeControllerHost, i18n?: I18n) {
 }
 
 // For type safety and expressiveness.
-function defineTexts<T extends LocaleTexts>(texts: T): LocaleTexts {
+function bundleTexts<T extends LocaleTexts>(texts: T): LocaleTexts {
   return texts;
 }
 

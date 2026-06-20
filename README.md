@@ -183,7 +183,7 @@ authTexts.partial({
 Translations can be dynamic:
 
 ```ts
-const texts = defineTexts({
+const texts = bundleTexts({
   "en-US": [
     cartTexts.full({
       items: (params) => `You have ${params.count} items`,
@@ -200,7 +200,7 @@ const texts = defineTexts({
 - getI18n() – global singleton instance
 - initI18n(config) – initialize global config once
 - createNamespace<T>(id) – typed namespace builder
-- defineTexts(texts) – type-safe translation definition
+- bundleTexts(texts) – type-safe translation bundling
 - localize(host) – controller binding
 
 ---
