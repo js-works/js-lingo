@@ -201,23 +201,10 @@ const texts = defineTexts({
 
 ## API Reference
 
-### Core
-
 - createI18n(config?) – create isolated instance
 - getI18n() – global singleton instance
 - initI18n(config) – initialize global config once
-- setTexts(...) – add translations
-
----
-
-### Namespaces
-
 - createNamespace<T>(id) – typed namespace builder
-
----
-
-### Utilities
-
 - defineTexts(texts) – type-safe translation definition
 - localize(host) – controller binding
 
