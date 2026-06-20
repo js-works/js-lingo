@@ -81,7 +81,7 @@ type I18n = {
   ): string;
 
   getLocalizer(locale: Locale): Localizer;
-  registerTexts(texts: Record<Locale, NamespaceTexts[]>): void;
+  addTexts(texts: Record<Locale, NamespaceTexts[]>): void;
   getPrimaryLocale(): Locale;
   onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe;
   getFallbackLocales(): Locale[];
@@ -241,14 +241,14 @@ class I18nImpl implements I18n {
     this.#textsToAdd = addTextsLazily ? [] : null;
   }
 
-  registerTexts(...bundles: LocaleTexts[]): void {
+  addTexts(...bundles: LocaleTexts[]): void {
     if (bundles.length === 0) {
       return;
     }
 
     if (bundles.length > 1) {
       for (const bundle of bundles) {
-        this.registerTexts(bundle);
+        this.addTexts(bundle);
       }
 
       return;
@@ -424,7 +424,7 @@ class I18nImpl implements I18n {
       const textsToAdd = this.#textsToAdd;
       this.#textsToAdd = null;
       for (const texts of textsToAdd) {
-        this.registerTexts(texts);
+        this.addTexts(texts);
       }
     }
   }

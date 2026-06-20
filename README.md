@@ -245,8 +245,7 @@ type I18nConfig = {
 - Strong TypeScript inference
 - No dependency required
 - Works standalone or as facade
-- Framework integration via controller abstraction
-- Supports both static and dynamic translations
+- UI framework integration via controller abstraction
 
 ---
 
