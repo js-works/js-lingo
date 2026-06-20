@@ -12,13 +12,13 @@ export type {
   Locale,
   LocalizeController,
   LocalizeControllerHost,
-  LocaleTexts,
   LocalizedText,
-  TextKey,
-  TextMap,
   Namespace,
   NamespaceId,
   NamespaceTexts,
+  TextBundle,
+  TextKey,
+  TextMap,
   Unsubscribe,
 };
 
@@ -34,7 +34,7 @@ type LocalizedText =
   | (<T extends Record<string, unknown>>(param: T) => string);
 
 type TextMap = Record<string, LocalizedText>;
-type LocaleTexts = Record<Locale, NamespaceTexts[]>;
+type TextBundle = Record<Locale, NamespaceTexts[]>;
 
 type TextParams<T> = T extends (
   params: Record<string, any>,
@@ -220,7 +220,7 @@ function localize(host: LocalizeControllerHost, i18n?: I18n) {
 }
 
 // For type safety and expressiveness.
-function bundleTexts<T extends LocaleTexts>(texts: T): LocaleTexts {
+function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
   return texts;
 }
 
@@ -241,7 +241,7 @@ class I18nImpl implements I18n {
     this.#textsToSet = setTextsLazily ? [] : null;
   }
 
-  setTexts(...bundles: LocaleTexts[]): void {
+  setTexts(...bundles: TextBundle[]): void {
     if (bundles.length === 0) {
       return;
     }

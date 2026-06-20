@@ -62,12 +62,12 @@ const greetTexts = createNamespace<GreetTexts>("greet");
 
 ---
 
-### 2. Define translations
+### 2. Bundle texts
 
 ```ts
-import { defineTexts } from "js-lingo";
+import { bundleTexts } from "js-lingo";
 
-const texts = defineTexts({
+const texts = bundleTexts({
   "en-US": [
     greetTexts.full({
       hello: "Hello",
