@@ -94,24 +94,19 @@ i18n.setTexts(texts);
 ### 4. Get translated text
 
 ```ts
-const message = i18n.getText(
-  "en-US",
-  common,
-  "greet",
-  { name: "John" }
-);
+const message = i18n.getText("en-US", greetTexts, "greet", { name: "John" });
 ```
 
 ---
 
-## Localizer (Convenience API)
+## Localizer
 
 A `Localizer` binds a locale to simplify calls.
 
 ```ts
-const loc = i18n.getLocalizer("en-US");
+const loc = getI18n().getLocalizer("en-US");
 
-loc.getText(common, "hello");
+loc.getText(greetTexts, "hello");
 loc.formatNumber(1234.56);
 loc.formatDateTime(new Date());
 ```
