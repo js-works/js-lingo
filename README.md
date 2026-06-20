@@ -123,21 +123,14 @@ loc.formatDateTime(new Date());
 js-lingo includes a controller abstraction that can be used in reactive frameworks.
 
 ```ts
+import { LitElement } from "lit";
 import { localize } from "js-lingo";
 
-class MyComponent {
-  private i18n = localize(this);
-
-  requestUpdate() {
-    // framework re-render hook
-  }
-
-  addController(controller: any) {
-    controller.hostConnected?.();
-  }
+class MyComponent extends LitElement {
+  private #loc = localize(this);
 
   render() {
-    return this.i18n.getText(common, "hello");
+    return this.#loc.getText(greetTexts, "hello");
   }
 }
 ```
@@ -172,9 +165,9 @@ This instance:
 Namespaces help structure translations and provide type safety.
 
 ```ts
-const ns = createNamespace<MyTexts>("auth");
+const authTexts = createNamespace<AuthTexts>("auth");
 
-ns.full({
+authTexts.full({
   login: "Login",
   logout: "Logout",
 });
@@ -183,7 +176,7 @@ ns.full({
 Partial namespaces are also supported:
 
 ```ts
-ns.partial({
+authTexts.partial({
   login: "Login",
 });
 ```
@@ -197,14 +190,9 @@ Translations can be dynamic:
 ```ts
 const texts = defineTexts({
   "en-US": [
-    {
-      namespaceId: "cart",
-      texts: {
-        items: (p: { count: number }) =>
-          `You have ${p.count} items`,
-      },
-      partial: false,
-    },
+    cartTexts.full({
+      items: (params) => `You have ${params.count} items`,
+    }),
   ],
 });
 ```
