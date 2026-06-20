@@ -1,7 +1,7 @@
 export {
   createI18n,
   createNamespace,
-  defineTranslations,
+  defineTexts,
   getI18n,
   initI18n,
   localize,
@@ -12,35 +12,38 @@ export type {
   Locale,
   LocalizeController,
   LocalizeControllerHost,
-  LocaleTranslations,
-  Translation,
-  TranslationKey,
-  TranslationMap,
+  LocaleTexts,
+  LocalizedText,
+  TextKey,
+  TextMap,
+  TextNamespace,
   NamespaceId,
-  NamespaceTranslations,
+  NamespaceTexts,
   Unsubscribe,
 };
 
 // === types =========================================================
 
 type Locale = string;
-type TranslationKey = string;
+type TextKey = string;
 type Unsubscribe = () => void;
 type ChangeListener = () => void;
-type Translation =
+
+type LocalizedText =
   | string
   | (<T extends Record<string, unknown>>(param: T) => string);
-type TranslationMap = Record<string, Translation>;
-type LocaleTranslations = Record<Locale, NamespaceTranslations[]>;
 
-type TranslationParams<T> = T extends (
+type TextMap = Record<string, LocalizedText>;
+type LocaleTexts = Record<Locale, NamespaceTexts[]>;
+
+type TextParams<T> = T extends (
   params: Record<string, any>,
   localizer: Localizer,
 ) => string
   ? Parameters<T>[0]
   : never;
 
-type SimpleTranslationKey<K, T> = T extends (
+type SimpleTextKey<K, T> = T extends (
   params: Record<string, any>,
   localizer: Localizer,
 ) => string
@@ -49,36 +52,36 @@ type SimpleTranslationKey<K, T> = T extends (
     ? K
     : never;
 
-type NamespaceTranslations = {
+type NamespaceTexts = {
   namespaceId: NamespaceId;
-  translations: TranslationMap;
+  translations: TextMap;
   partial: boolean;
 };
 
 type NamespaceId = string;
 
-type TranslationNamespace<T extends TranslationMap> = Readonly<{
+type TextNamespace<T extends TextMap> = Readonly<{
   id: NamespaceId;
-  full(translations: T): NamespaceTranslations;
-  partial(translations: Partial<T>): NamespaceTranslations;
+  full(translations: T): NamespaceTexts;
+  partial(translations: Partial<T>): NamespaceTexts;
 }>;
 
 type I18n = {
-  getText<T extends TranslationMap, K extends keyof T>(
+  getText<T extends TextMap, K extends keyof T>(
     locale: Locale,
-    namespace: TranslationNamespace<T>,
+    namespace: TextNamespace<T>,
     key: K,
-    params: TranslationParams<T[K]>,
+    params: TextParams<T[K]>,
   ): string;
 
-  getText<T extends TranslationMap, K extends keyof T>(
+  getText<T extends TextMap, K extends keyof T>(
     locale: Locale,
-    namespace: TranslationNamespace<T>,
-    key: SimpleTranslationKey<K, T[K]>,
+    namespace: TextNamespace<T>,
+    key: SimpleTextKey<K, T[K]>,
   ): string;
 
   getLocalizer(locale: Locale): Localizer;
-  registerTranslations(texts: Record<Locale, NamespaceTranslations[]>): void;
+  registerTexts(texts: Record<Locale, NamespaceTexts[]>): void;
   getPrimaryLocale(): Locale;
   onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe;
   getFallbackLocales(): Locale[];
@@ -90,19 +93,12 @@ type I18nConfig = {
   onPrimaryLocaleChange?(listener: ChangeListener): Unsubscribe;
   getFallbackLocales?(): Locale[];
   onFallbackLocalesChange?(listener: ChangeListener): Unsubscribe;
-  onAddTranslations?(
-    locale: Locale,
-    namespace: NamespaceId,
-    key: TranslationKey,
-  ): void;
+  onAddTexts?(locale: Locale, namespace: NamespaceId, key: TextKey): void;
   // More to come in futue.
 };
 
 type Localizer = {
-  getText<T extends TranslationMap>(
-    namespace: TranslationNamespace<T>,
-    key: keyof T,
-  ): string;
+  getText<T extends TextMap>(namespace: TextNamespace<T>, key: keyof T): string;
   formatNumber(value: number, option?: Intl.NumberFormatOptions): string;
   numberFormat(option?: Intl.NumberFormatOptions): Intl.NumberFormat;
   formatDateTime(value: Date, option?: Intl.DateTimeFormatOptions): string;
@@ -206,9 +202,7 @@ function createI18n(config: I18nConfig = {}): I18n {
   return new I18nImpl(() => clonedConfig);
 }
 
-function createNamespace<T extends TranslationMap>(
-  id: NamespaceId,
-): TranslationNamespace<T> {
+function createNamespace<T extends TextMap>(id: NamespaceId): TextNamespace<T> {
   return freeze({
     id,
     full: (translations) =>
@@ -216,7 +210,7 @@ function createNamespace<T extends TranslationMap>(
     partial: (translations) =>
       freeze({
         namespaceId: id,
-        translations: translations as TranslationMap,
+        translations: translations as TextMap,
         partial: true,
       }),
   });
@@ -227,9 +221,7 @@ function localize(host: LocalizeControllerHost, i18n?: I18n) {
 }
 
 // For type safety and expressiveness.
-function defineTranslations<T extends LocaleTranslations>(
-  translations: T,
-): LocaleTranslations {
+function defineTexts<T extends LocaleTexts>(translations: T): LocaleTexts {
   return translations;
 }
 
@@ -240,24 +232,24 @@ class I18nImpl implements I18n {
   readonly #getConfig: () => I18nConfig;
   #primaryLocaleListners: ChangeListener[] = [];
   #fallbackLocalesListners: ChangeListener[] = [];
-  #dict: Record<Locale, Record<NamespaceId, Record<string, Translation>>> =
+  #dict: Record<Locale, Record<NamespaceId, Record<string, LocalizedText>>> =
     createRecord();
   #localizerByLocale: Record<Locale, Localizer> = createRecord();
-  #translationsToAdd: Record<Locale, NamespaceTranslations[]>[] | null;
+  #translationsToAdd: Record<Locale, NamespaceTexts[]>[] | null;
 
-  constructor(getConfig: () => I18nConfig, addTranslationsLazily = false) {
+  constructor(getConfig: () => I18nConfig, addTextsLazily = false) {
     this.#getConfig = getConfig;
-    this.#translationsToAdd = addTranslationsLazily ? [] : null;
+    this.#translationsToAdd = addTextsLazily ? [] : null;
   }
 
-  registerTranslations(...bundles: LocaleTranslations[]): void {
+  registerTexts(...bundles: LocaleTexts[]): void {
     if (bundles.length === 0) {
       return;
     }
 
     if (bundles.length > 1) {
       for (const bundle of bundles) {
-        this.registerTranslations(bundle);
+        this.registerTexts(bundle);
       }
 
       return;
@@ -292,32 +284,32 @@ class I18nImpl implements I18n {
           translations[key] = value;
           const config = this.#getConfig();
 
-          if (config.onAddTranslations) {
-            config.onAddTranslations(locale, namespaceKey, key);
+          if (config.onAddTexts) {
+            config.onAddTexts(locale, namespaceKey, key);
           }
         }
       }
     }
   }
 
-  getText<T extends TranslationMap, K extends keyof T>(
+  getText<T extends TextMap, K extends keyof T>(
     locale: Locale,
-    namespace: TranslationNamespace<T>,
+    namespace: TextNamespace<T>,
     key: K,
-    params: TranslationParams<T[K]>,
+    params: TextParams<T[K]>,
   ): string;
 
-  getText<T extends TranslationMap, K extends keyof T>(
+  getText<T extends TextMap, K extends keyof T>(
     locale: Locale,
-    namespace: TranslationNamespace<T>,
-    key: SimpleTranslationKey<K, T[K]>,
+    namespace: TextNamespace<T>,
+    key: SimpleTextKey<K, T[K]>,
   ): string;
 
   getText(
     locale: Locale,
-    namespace: TranslationNamespace<any>,
+    namespace: TextNamespace<any>,
     key: string,
-    params: Record<string, Translation> | null = null,
+    params: Record<string, LocalizedText> | null = null,
   ) {
     this.#init();
     console.log(this.#dict);
@@ -361,8 +353,8 @@ class I18nImpl implements I18n {
   #getText(
     locale: Intl.Locale,
     namespaceKey: NamespaceId,
-    key: TranslationKey,
-    params: Record<string, Translation> | null,
+    key: TextKey,
+    params: Record<string, LocalizedText> | null,
   ): string {
     const base = locale.baseName;
     const language = locale.language.toLowerCase() ?? "";
@@ -394,8 +386,8 @@ class I18nImpl implements I18n {
   #getTextByExactLocale(
     locale: string,
     namespaceKey: NamespaceId,
-    key: TranslationKey,
-    params: Record<string, Translation> | null,
+    key: TextKey,
+    params: Record<string, LocalizedText> | null,
   ): string | null {
     let rec: Record<string, any> = this.#dict[locale]; // TODO
     if (!rec) {
@@ -433,7 +425,7 @@ class I18nImpl implements I18n {
       const translationsToAdd = this.#translationsToAdd;
       this.#translationsToAdd = null;
       for (const translations of translationsToAdd) {
-        this.registerTranslations(translations);
+        this.registerTexts(translations);
       }
     }
   }
@@ -448,21 +440,21 @@ class DefaultLocalizer implements Localizer {
     this.#getLocale = getLocale;
   }
 
-  getText<T extends TranslationMap, K extends keyof T & string>(
-    namespace: TranslationNamespace<T>,
+  getText<T extends TextMap, K extends keyof T & string>(
+    namespace: TextNamespace<T>,
     key: K,
-    params: TranslationParams<T[K]>,
+    params: TextParams<T[K]>,
   ): string;
 
-  getText<T extends TranslationMap, K extends keyof T & string>(
-    namespace: TranslationNamespace<T>,
-    key: SimpleTranslationKey<K, T[K]>,
+  getText<T extends TextMap, K extends keyof T & string>(
+    namespace: TextNamespace<T>,
+    key: SimpleTextKey<K, T[K]>,
   ): string;
 
   getText(
-    namespace: TranslationNamespace<any>,
+    namespace: TextNamespace<any>,
     key: string,
-    params: Record<string, Translation> | null = null,
+    params: Record<string, LocalizedText> | null = null,
   ) {
     return this.#i18n.getText(
       this.#getLocale(),
