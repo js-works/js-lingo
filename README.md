@@ -237,10 +237,8 @@ const texts = bundleTexts({
 type I18nConfig = {
   getPrimaryLocale?(): string;
   onPrimaryLocaleChange?(fn: () => void): () => void;
-
   getFallbackLocales?(): string[];
   onFallbackLocalesChange?(fn: () => void): () => void;
-
   onAddTexts?(locale: string, namespace: string, key: string): void;
 };
 ```
