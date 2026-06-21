@@ -86,7 +86,7 @@ import { createI18n } from "js-lingo";
 
 const i18n = createI18n();
 
-i18n.setTexts(texts);
+i18n.addTexts(texts);
 ```
 
 ---
@@ -140,7 +140,7 @@ const defaultDateFieldTexts = bundleTexts({
   ],
 });
 
-getI18n().setTexts(defaultDateFieldTexts);
+getI18n().addTexts(defaultDateFieldTexts);
 
 @customElement("my-date-field")
 class DateField extends LitElement {

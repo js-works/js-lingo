@@ -34,7 +34,7 @@ type LocalizedText =
   | (<T extends Record<string, unknown>>(param: T) => string);
 
 type TextMap = Record<string, LocalizedText>;
-type TextBundle = Record<Locale, NamespaceTexts[]>;
+type TextBundle = Record<Locale, NamespaceTexts<any>[]>;
 
 type TextParams<T> = T extends (
   params: Record<string, any>,
@@ -52,8 +52,8 @@ type SimpleTextKey<K, T> = T extends (
     ? K
     : never;
 
-type NamespaceTexts = {
-  namespaceId: NamespaceId;
+type NamespaceTexts<T extends TextMap> = {
+  namespace: Namespace<T>;
   texts: TextMap;
   partial: boolean;
 };
@@ -62,8 +62,8 @@ type NamespaceId = string;
 
 type Namespace<T extends TextMap> = Readonly<{
   id: NamespaceId;
-  full(texts: T): NamespaceTexts;
-  partial(texts: Partial<T>): NamespaceTexts;
+  full(texts: T): NamespaceTexts<T>;
+  partial(texts: Partial<T>): NamespaceTexts<T>;
 }>;
 
 type I18n = {
@@ -81,7 +81,7 @@ type I18n = {
   ): string;
 
   getLocalizer(locale: Locale): Localizer;
-  setTexts(texts: Record<Locale, NamespaceTexts[]>): void;
+  addTexts(...textBundles: TextBundle[]): void;
   getPrimaryLocale(): Locale;
   onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe;
   getFallbackLocales(): Locale[];
@@ -93,7 +93,7 @@ type I18nConfig = {
   onPrimaryLocaleChange?(listener: ChangeListener): Unsubscribe;
   getFallbackLocales?(): Locale[];
   onFallbackLocalesChange?(listener: ChangeListener): Unsubscribe;
-  onSetTexts?(locale: Locale, namespace: NamespaceId, key: TextKey): void;
+  onAddTexts?(locale: Locale, namespace: Namespace<any>, key: TextKey): void;
   // More to come in futue.
 };
 
@@ -203,16 +203,18 @@ function createI18n(config: I18nConfig = {}): I18n {
 }
 
 function createNamespace<T extends TextMap>(id: NamespaceId): Namespace<T> {
-  return freeze({
+  const namespace = freeze({
     id,
-    full: (texts) => freeze({ namespaceId: id, texts, partial: false }),
-    partial: (texts) =>
+    full: (texts: T) => freeze({ namespace, texts, partial: false }),
+    partial: (texts: T) =>
       freeze({
-        namespaceId: id,
-        texts: texts as TextMap,
+        namespace,
+        texts: texts,
         partial: true,
       }),
   });
+
+  return namespace;
 }
 
 function localize(host: LocalizeControllerHost, i18n?: I18n) {
@@ -234,21 +236,21 @@ class I18nImpl implements I18n {
   #dict: Record<Locale, Record<NamespaceId, Record<string, LocalizedText>>> =
     createRecord();
   #localizerByLocale: Record<Locale, Localizer> = createRecord();
-  #textsToSet: Record<Locale, NamespaceTexts[]>[] | null;
+  #textsToAdd: Record<Locale, NamespaceTexts<any>[]>[] | null;
 
-  constructor(getConfig: () => I18nConfig, setTextsLazily = false) {
+  constructor(getConfig: () => I18nConfig, addTextsLazily = false) {
     this.#getConfig = getConfig;
-    this.#textsToSet = setTextsLazily ? [] : null;
+    this.#textsToAdd = addTextsLazily ? [] : null;
   }
 
-  setTexts(...bundles: TextBundle[]): void {
+  addTexts(...bundles: TextBundle[]): void {
     if (bundles.length === 0) {
       return;
     }
 
     if (bundles.length > 1) {
       for (const bundle of bundles) {
-        this.setTexts(bundle);
+        this.addTexts(bundle);
       }
 
       return;
@@ -256,8 +258,8 @@ class I18nImpl implements I18n {
 
     const texts = bundles[0];
 
-    if (this.#textsToSet) {
-      this.#textsToSet.push(texts);
+    if (this.#textsToAdd) {
+      this.#textsToAdd.push(texts);
       return;
     }
 
@@ -270,21 +272,21 @@ class I18nImpl implements I18n {
       }
 
       for (const bundle of bundles) {
-        const namespaceKey = bundle.namespaceId;
+        const namespace = bundle.namespace;
 
         for (const [key, value] of Object.entries(bundle.texts)) {
-          let texts = byNamespace[namespaceKey];
+          let texts = byNamespace[namespace.id];
 
           if (!texts) {
             texts = createRecord();
-            byNamespace[namespaceKey] = texts;
+            byNamespace[namespace.id] = texts;
           }
 
           texts[key] = value;
           const config = this.#getConfig();
 
-          if (config.onSetTexts) {
-            config.onSetTexts(locale, namespaceKey, key);
+          if (config.onAddTexts) {
+            config.onAddTexts(locale, namespace, key);
           }
         }
       }
@@ -418,13 +420,13 @@ class I18nImpl implements I18n {
     }
 
     this.#config = this.#getConfig() ?? {};
-    console.log(this.#textsToSet?.length);
+    console.log(this.#textsToAdd?.length);
 
-    if (this.#textsToSet) {
-      const textsToSet = this.#textsToSet;
-      this.#textsToSet = null;
-      for (const texts of textsToSet) {
-        this.setTexts(texts);
+    if (this.#textsToAdd) {
+      const textsToAdd = this.#textsToAdd;
+      this.#textsToAdd = null;
+      for (const texts of textsToAdd) {
+        this.addTexts(texts);
       }
     }
   }
