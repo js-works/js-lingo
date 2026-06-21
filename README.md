@@ -144,8 +144,8 @@ getI18n().setTexts(defaultDateFieldTexts);
 
 @customElement("my-date-field")
 class DateField extends LitElement {
-  #localizer = localize(this);
-  #t = this.#localizer.texts(dateFieldTexts);
+  #loc = localize(this);
+  #t = this.#loc.texts(dateFieldTexts);
 
   // ...
 
