@@ -105,10 +105,13 @@ A `Localizer` binds a locale to simplify calls.
 
 ```ts
 const loc = getI18n().getLocalizer("en-US");
+const t = loc.texts(greetTexts);
 
-loc.getText(greetTexts, "hello");
-loc.formatNumber(1234.56);
-loc.formatDateTime(new Date());
+t("hello") // Same as: loc.getText(greetTexts, "hello");
+t("greet", { name: "Jane "}) // Same as: loc.getText(greetTexts, "greet", { name: "Jane" });
+t(commonTexts, "app") // Same as: loc.getText(commonTexts, "app");
+loc.formatNumber(1234.56)
+loc.formatDateTime(new Date())
 ```
 
 ---

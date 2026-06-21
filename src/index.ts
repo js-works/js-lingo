@@ -386,7 +386,7 @@ class I18nImpl implements I18n {
 
   #getTextByExactLocale(
     locale: string,
-    namespaceKey: NamespaceId,
+    namespaceId: NamespaceId,
     key: TextKey,
     params: Record<string, LocalizedText> | null,
   ): string | null {
@@ -395,7 +395,7 @@ class I18nImpl implements I18n {
       return null;
     }
 
-    rec = rec[namespaceKey];
+    rec = rec[namespaceId];
 
     if (!rec) {
       return null;
