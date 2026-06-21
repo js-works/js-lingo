@@ -313,7 +313,7 @@ class I18nImpl implements I18n {
     params: Record<string, LocalizedText> | null = null,
   ) {
     this.#init();
-    console.log(this.#dict);
+
     return this.#getText(
       new Intl.Locale(locale),
       namespace.id,
@@ -420,7 +420,6 @@ class I18nImpl implements I18n {
     }
 
     this.#config = this.#getConfig() ?? {};
-    console.log(this.#textsToAdd?.length);
 
     if (this.#textsToAdd) {
       const textsToAdd = this.#textsToAdd;
