@@ -122,15 +122,15 @@ js-lingo includes a controller abstraction that can be used in reactive framewor
 
 ```ts
 import { LitElement } from "lit";
-import { bundleTexts, createNamespace, localize } from "js-lingo";
+import { bundleTexts, createNamespace, localize, type LocalizedText } from "js-lingo";
 
 export { dateFieldTexts, defaultDateFieldTexts, DateField };
 export type { DateFieldTexts };
 
 type DateFieldTexts = {
-  today: string,
-  selectDate: string,
-}
+  today: LocalizedText,
+  selectDate: LocalizedText,
+};
 
 const dateFieldTexts = createNamespace<DateFieldTexts>({
   id: "myLibrary.dateField"
