@@ -127,7 +127,7 @@ let initI18nHasAlreadyBeenCalled = false;
 
 // Shared state betweeen functions `initI18n` and `getI18n`.
 let i18nConfig: I18nConfig | null = null;
-let i18nHasAlreadyBeenInitialized = false; // TODO: Has to be set somewhere :-)
+let i18nHasAlreadyBeenInitialized = false;
 
 // === internal functions ============================================
 
@@ -202,9 +202,11 @@ function createI18n(config: I18nConfig = {}): I18n {
   return new I18nImpl(() => clonedConfig);
 }
 
-function createNamespace<T extends TextMap>(id: NamespaceId): Namespace<T> {
+function createNamespace<T extends TextMap>(params: {
+  id: NamespaceId;
+}): Namespace<T> {
   const namespace = freeze({
-    id,
+    id: params.id,
     full: (texts: T) => freeze({ namespace, texts, partial: false }),
     partial: (texts: T) =>
       freeze({
@@ -323,6 +325,7 @@ class I18nImpl implements I18n {
   }
 
   getLocalizer(locale: Locale): Localizer {
+    this.#init();
     let localizer = this.#localizerByLocale[locale];
 
     if (!localizer) {
@@ -391,6 +394,7 @@ class I18nImpl implements I18n {
     params: Record<string, LocalizedText> | null,
   ): string | null {
     let rec: Record<string, any> = this.#dict[locale]; // TODO
+
     if (!rec) {
       return null;
     }
@@ -415,6 +419,10 @@ class I18nImpl implements I18n {
   }
 
   #init() {
+    if (this === i18n) {
+      i18nHasAlreadyBeenInitialized = true;
+    }
+
     if (this.#config) {
       return;
     }

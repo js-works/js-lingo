@@ -132,9 +132,11 @@ type DateFieldTexts = {
   selectDate: string,
 }
 
-const dateFieldTexts = createNamespace<DateFieldTexts>("myLibrary.dateField");
+const dateFieldTexts = createNamespace<DateFieldTexts>({
+  id: "myLibrary.dateField"
+});
 
-const defaultDateFieldTexts = bundleTexts({
+getI18n().addTexts({
   "en-US": [
     dateFieldTexts.full({
       today: "Today",
@@ -142,8 +144,6 @@ const defaultDateFieldTexts = bundleTexts({
     });
   ],
 });
-
-getI18n().addTexts(defaultDateFieldTexts);
 
 @customElement("my-date-field")
 class DateField extends LitElement {
@@ -189,7 +189,9 @@ This instance:
 Namespaces help structure translations and provide type safety.
 
 ```ts
-const authTexts = createNamespace<AuthTexts>("auth");
+const authTexts = createNamespace<AuthTexts>({
+  id: "auth"
+});
 
 authTexts.full({
   login: "Login",
