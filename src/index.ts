@@ -1,3 +1,37 @@
+/**
+ * Lightweight TypeScript i18n library with typed namespaces and functional translations.
+ *
+ * Provides a minimal abstraction for managing localized texts without requiring
+ * a message format DSL or code generation.
+ *
+ * ## Core model
+ *
+ * - Texts are grouped into namespaces created via `createNamespace`.
+ * - A namespace is a typed identifier used to register and retrieve translations.
+ * - Translations can be either:
+ *   - string → static text
+ *   - (params, localizer) => string → dynamic text
+ *
+ * ## Runtime usage
+ *
+ * - `getI18n()` returns the global i18n instance
+ * - `initI18n(config)` initializes/customizes the global instance
+ *    (must not be called more than once in the app)
+ * - `createI18n(config)` creates an isolated i18n instance
+ *
+ * - `localize(host)` integrates i18n with reactive UI controllers
+ *   (e.g. LitElement) and triggers updates on locale changes
+ *
+ * - `bundleTexts(texts)` provides type-safe grouping of translations per locale
+ *
+ * ## Design goals
+ *
+ * - Fully type-safe without code generation
+ * - No custom message syntax (pure TypeScript functions)
+ * - Minimal runtime footprint
+ * - Works standalone or as a facade over other i18n systems
+ */
+
 export {
   bundleTexts,
   createI18n,
@@ -14,7 +48,7 @@ export type {
   LocalizeControllerHost,
   LocalizedText,
   Namespace,
-  NamespaceId,
+  NamespaceKey,
   NamespaceTexts,
   TextBundle,
   TextKey,
@@ -24,14 +58,17 @@ export type {
 
 // === types =========================================================
 
-type Locale = string;
-type TextKey = string;
+type Locale = string; // NOSONAR
+type TextKey = string; // NOSONAR
 type Unsubscribe = () => void;
 type ChangeListener = () => void;
 
 type LocalizedText =
   | string
-  | (<T extends Record<string, unknown>>(param: T) => string);
+  | (<T extends Record<string, unknown>>(
+      param: T,
+      localizer: Localizer,
+    ) => string);
 
 type TextMap = Record<string, LocalizedText>;
 type TextBundle = Record<Locale, NamespaceTexts<any>[]>;
@@ -54,14 +91,14 @@ type SimpleTextKey<K, T> = T extends (
 
 type NamespaceTexts<T extends TextMap> = {
   namespace: Namespace<T>;
-  texts: TextMap;
-  partial: boolean;
+  texts: Partial<T>;
 };
 
-type NamespaceId = string;
+type NamespaceKey = string; // NOSONAR
 
 type Namespace<T extends TextMap> = Readonly<{
-  id: NamespaceId;
+  key: NamespaceKey;
+  group: string | null;
   full(texts: T): NamespaceTexts<T>;
   partial(texts: Partial<T>): NamespaceTexts<T>;
 }>;
@@ -108,8 +145,9 @@ type Localizer = {
 };
 
 type LocalizeController = {
-  hostConnected?(): void;
-  hostDisconnected?(): void;
+  hostConnected(): void;
+  hostDisconnected(): void;
+  host?: LocalizeControllerHost;
 };
 
 type LocalizeControllerHost = {
@@ -129,7 +167,7 @@ let initI18nHasAlreadyBeenCalled = false;
 let i18nConfig: I18nConfig | null = null;
 let i18nHasAlreadyBeenInitialized = false;
 
-// === internal functions ============================================
+// === internal functions ======================================================
 
 function createRecord() {
   return Object.create(null);
@@ -141,15 +179,15 @@ function freeze<T extends Record<string, any>>(obj: T): Readonly<T> {
 
 function isClientSide() {
   return (
-    typeof window === "object" &&
-    globalThis === window &&
+    globalThis.window === globalThis &&
     typeof document === "object" &&
+    globalThis.document === document &&
     typeof document.documentElement === "object" &&
     typeof MutationObserver === "function"
   );
 }
 
-// === exported functions ======================================================
+// === exported functions ============================================
 
 function initI18n(config: I18nConfig) {
   if (initI18nHasAlreadyBeenCalled) {
@@ -191,7 +229,7 @@ function getI18n() {
       return config;
     };
 
-    i18n = new I18nImpl(getConfig, true);
+    i18n = new DefaultI18n(getConfig, true);
   }
 
   return i18n;
@@ -199,20 +237,25 @@ function getI18n() {
 
 function createI18n(config: I18nConfig = {}): I18n {
   const clonedConfig = { ...config };
-  return new I18nImpl(() => clonedConfig);
+  return new DefaultI18n(() => clonedConfig);
 }
 
 function createNamespace<T extends TextMap>(params: {
-  id: NamespaceId;
+  key: string;
+  group?: string | null;
 }): Namespace<T> {
   const namespace = freeze({
-    id: params.id,
-    full: (texts: T) => freeze({ namespace, texts, partial: false }),
-    partial: (texts: T) =>
+    key: params.key,
+    group: params.group ?? null,
+    full: (texts: T) =>
       freeze({
         namespace,
-        texts: texts,
-        partial: true,
+        texts,
+      }),
+    partial: (texts: Partial<T>) =>
+      freeze({
+        namespace,
+        texts,
       }),
   });
 
@@ -230,12 +273,12 @@ function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
 
 // === internal classes ========================================================
 
-class I18nImpl implements I18n {
+class DefaultI18n implements I18n {
   #config: I18nConfig | null = null;
   readonly #getConfig: () => I18nConfig;
-  #primaryLocaleListners: ChangeListener[] = [];
-  #fallbackLocalesListners: ChangeListener[] = [];
-  #dict: Record<Locale, Record<NamespaceId, Record<string, LocalizedText>>> =
+  readonly #primaryLocaleListners: ChangeListener[] = [];
+  readonly #fallbackLocalesListners: ChangeListener[] = [];
+  #dict: Record<Locale, Record<NamespaceKey, Record<string, LocalizedText>>> =
     createRecord();
   #localizerByLocale: Record<Locale, Localizer> = createRecord();
   #textsToAdd: Record<Locale, NamespaceTexts<any>[]>[] | null;
@@ -254,44 +297,98 @@ class I18nImpl implements I18n {
       for (const bundle of bundles) {
         this.addTexts(bundle);
       }
-
       return;
     }
 
-    const texts = bundles[0];
+    const textBundle = bundles[0];
+
+    // normalize BEFORE buffering
+    const normalizedBundle = this.#normalizeTextBundle(textBundle);
 
     if (this.#textsToAdd) {
-      this.#textsToAdd.push(texts);
+      this.#textsToAdd.push(normalizedBundle);
       return;
     }
 
-    for (const [locale, bundles] of Object.entries(texts)) {
-      let byNamespace = this.#dict![locale];
+    this.#applyTextBundle(normalizedBundle);
+  }
 
-      if (!byNamespace) {
-        byNamespace = createRecord();
-        this.#dict[locale] = byNamespace;
+  #normalizeTextBundle(texts: TextBundle): TextBundle {
+    const result: TextBundle = {};
+
+    for (const [locale, namespaceBundles] of Object.entries(texts)) {
+      const normalizedLocale = this.#normalizeLocaleKey(locale);
+
+      result[normalizedLocale] ??= [];
+
+      result[normalizedLocale].push(...namespaceBundles);
+    }
+
+    return result;
+  }
+
+  #normalizeLocaleKey(locale: string): string {
+    try {
+      return new Intl.Locale(locale).baseName;
+    } catch {
+      return locale;
+    }
+  }
+
+  #applyTextBundle(texts: TextBundle): void {
+    for (const [locale, namespaceBundles] of Object.entries(texts)) {
+      const byNamespace = this.#getOrCreateLocale(locale);
+
+      for (const bundle of namespaceBundles) {
+        this.#applyNamespaceBundle(locale, byNamespace, bundle);
       }
+    }
+  }
 
-      for (const bundle of bundles) {
-        const namespace = bundle.namespace;
+  #applyNamespaceBundle(
+    locale: string,
+    byNamespace: Record<NamespaceKey, Record<string, LocalizedText>>,
+    bundle: NamespaceTexts<any>,
+  ): void {
+    const namespaceKey = bundle.namespace.key;
 
-        for (const [key, value] of Object.entries(bundle.texts)) {
-          let texts = byNamespace[namespace.id];
+    let texts = byNamespace[namespaceKey];
 
-          if (!texts) {
-            texts = createRecord();
-            byNamespace[namespace.id] = texts;
-          }
+    if (!texts) {
+      texts = createRecord();
+      byNamespace[namespaceKey] = texts;
+    }
 
-          texts[key] = value;
-          const config = this.#getConfig();
+    for (const key in bundle.texts) {
+      const value = bundle.texts[key];
 
-          if (config.onAddTexts) {
-            config.onAddTexts(locale, namespace, key);
-          }
-        }
-      }
+      // last-write-wins
+      texts[key] = value;
+
+      this.#notifyAddText(locale, bundle.namespace, key);
+    }
+  }
+
+  #getOrCreateLocale(
+    locale: string,
+  ): Record<NamespaceKey, Record<string, LocalizedText>> {
+    const normalizedLocale = this.#normalizeLocaleKey(locale);
+
+    let byNamespace = this.#dict[normalizedLocale];
+
+    if (!byNamespace) {
+      byNamespace = createRecord();
+      this.#dict[normalizedLocale] = byNamespace;
+    }
+
+    return byNamespace;
+  }
+
+  #notifyAddText(locale: string, namespace: Namespace<any>, key: string): void {
+    const config = this.#getConfig();
+
+    if (config.onAddTexts) {
+      config.onAddTexts(locale, namespace, key);
     }
   }
 
@@ -318,7 +415,7 @@ class I18nImpl implements I18n {
 
     return this.#getText(
       new Intl.Locale(locale),
-      namespace.id,
+      namespace.key,
       key,
       params ?? null,
     );
@@ -356,22 +453,33 @@ class I18nImpl implements I18n {
 
   #getText(
     locale: Intl.Locale,
-    namespaceKey: NamespaceId,
+    namespaceKey: NamespaceKey,
     key: TextKey,
     params: Record<string, LocalizedText> | null,
   ): string {
-    const base = locale.baseName;
-    const language = locale.language.toLowerCase() ?? "";
-    const region = locale.region?.toLowerCase() ?? "";
-    const languageAndRegion = language + (region ? "-" : "") + region;
-    const localesToTry: Locale[] = [base];
+    const localesToTry: string[] = [locale.baseName];
 
-    if (languageAndRegion !== base) {
-      localesToTry.push(languageAndRegion);
-    }
+    const add = (value?: string | null) => {
+      if (!value) return;
 
-    if (language != languageAndRegion) {
-      localesToTry.push(language);
+      let normalized: string;
+      try {
+        normalized = new Intl.Locale(value).baseName;
+      } catch {
+        normalized = value;
+      }
+
+      if (!localesToTry.includes(normalized)) {
+        localesToTry.push(normalized);
+      }
+    };
+
+    if (locale.language) {
+      add(locale.language.toLowerCase());
+
+      if (locale.region) {
+        add(`${locale.language}-${locale.region}`);
+      }
     }
 
     let ret: string | null = null;
@@ -384,38 +492,43 @@ class I18nImpl implements I18n {
       }
     }
 
-    return ret != null ? ret : key;
+    return ret ?? key;
   }
 
   #getTextByExactLocale(
     locale: string,
-    namespaceId: NamespaceId,
+    namespaceKey: NamespaceKey,
     key: TextKey,
     params: Record<string, LocalizedText> | null,
   ): string | null {
-    let rec: Record<string, any> = this.#dict[locale]; // TODO
+    const byNamespace = this.#dict[locale];
+    if (!byNamespace) return null;
 
-    if (!rec) {
+    const entries = byNamespace[namespaceKey];
+    if (!entries) return null;
+
+    const value = entries[key];
+
+    if (value == null) {
       return null;
     }
 
-    rec = rec[namespaceId];
-
-    if (!rec) {
-      return null;
+    // Static text
+    if (typeof value === "string") {
+      return value;
     }
 
-    const texts = rec[key];
-
-    if (params === null) {
-      if (typeof texts === "string") {
-        return texts;
+    // Dynamic text
+    if (typeof value === "function") {
+      if (params === null) {
+        return null;
       }
 
-      return key;
+      const localizer = this.getLocalizer(locale);
+      return value(params, localizer);
     }
 
-    return texts(params);
+    return null;
   }
 
   #init() {
@@ -440,8 +553,8 @@ class I18nImpl implements I18n {
 }
 
 class DefaultLocalizer implements Localizer {
-  #i18n: I18n;
-  #getLocale: () => Locale;
+  readonly #i18n: I18n;
+  readonly #getLocale: () => Locale;
 
   constructor(i18n: I18n, getLocale: () => Locale) {
     this.#i18n = i18n;
@@ -467,7 +580,7 @@ class DefaultLocalizer implements Localizer {
     return this.#i18n.getText(
       this.#getLocale(),
       namespace,
-      key as string,
+      key,
       params || null,
     );
   }
@@ -498,10 +611,10 @@ class DefaultLocalizer implements Localizer {
 }
 
 class DocumentLocaleMonitor {
-  #document: Document;
-  #defaultLocale: Locale | null;
+  readonly #document: Document;
+  readonly #defaultLocale: Locale | null;
+  readonly #listeners = new Set<ChangeListener>();
   #locale: Locale | null;
-  #listeners = new Set<ChangeListener>();
   #mutationObserver: MutationObserver | null = null;
 
   constructor(document: Document, defaultLocale = null) {
@@ -532,9 +645,19 @@ class DocumentLocaleMonitor {
   }
 
   #updateLocaleInfo() {
-    this.#locale =
+    const nextLocale =
       this.#document.documentElement.getAttribute("lang") ||
       this.#defaultLocale;
+
+    if (nextLocale === this.#locale) {
+      return;
+    }
+
+    this.#locale = nextLocale;
+
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 
   #activate() {
@@ -545,7 +668,7 @@ class DocumentLocaleMonitor {
       this.#updateLocaleInfo(),
     );
 
-    this.#mutationObserver.observe(document.getRootNode(), {
+    this.#mutationObserver.observe(this.#document.documentElement, {
       attributes: true,
       attributeFilter: ["lang"],
     });
@@ -565,7 +688,7 @@ class DefaultLocalizeController
   extends DefaultLocalizer
   implements LocalizeController
 {
-  #host: LocalizeControllerHost;
+  readonly #host: LocalizeControllerHost;
   #locale = getI18n().getPrimaryLocale();
   #unsubscribe: Unsubscribe | null = null;
 
@@ -576,21 +699,22 @@ class DefaultLocalizeController
   }
 
   hostConnected(): void {
-    const unsubscribe = this.#unsubscribe;
+    const i18n = getI18n();
 
-    if (unsubscribe) {
-      this.#unsubscribe = null;
-      unsubscribe();
-    }
+    const syncLocale = () => {
+      this.#locale = i18n.getPrimaryLocale();
+      this.#host.requestUpdate();
+    };
 
-    const update = () => this.#host.requestUpdate();
-    const unsubscribe1 = getI18n().onPrimaryLocaleChange(update);
-    const unsubscribe2 = getI18n().onFallbackLocalesChange(update);
+    const unsub1 = i18n.onPrimaryLocaleChange(syncLocale);
+    const unsub2 = i18n.onFallbackLocalesChange(syncLocale);
 
     this.#unsubscribe = () => {
-      unsubscribe1();
-      unsubscribe2();
+      unsub1();
+      unsub2();
     };
+
+    syncLocale();
   }
 
   hostDisconnected(): void {
