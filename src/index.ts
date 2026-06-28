@@ -53,6 +53,7 @@ export type {
   TextBundle,
   TextKey,
   TextMap,
+  Translation,
   Unsubscribe,
 };
 
@@ -63,14 +64,37 @@ type TextKey = string; // NOSONAR
 type Unsubscribe = () => void;
 type ChangeListener = () => void;
 
-type LocalizedText =
-  | string
-  | (<T extends Record<string, unknown>>(
-      param: T,
-      localizer: Localizer,
-    ) => string);
+type TranslationFn<T extends Record<string, unknown>> = (
+  params: T,
+  localizer: Localizer,
+) => string;
 
-type TextMap = Record<string, LocalizedText>;
+type TranslationParams<T> = T extends TranslationFn<infer P> ? P : never;
+
+type Translation2<T extends Record<string, unknown> = Record<string, never>> =
+  | string
+  | TranslationFn<T>;
+
+type Translation<T extends Record<string, unknown> = never> = [T] extends [
+  never,
+]
+  ? string
+  : TranslationFn<T>;
+
+type TextKeysWithParams<T extends Record<string, unknown>> = {
+  [K in keyof T]: T[K] extends TranslationFn<any> ? K : never;
+}[keyof T];
+
+type TextKeysWithoutParams<T extends TextMap> = Exclude<
+  keyof T,
+  TextKeysWithParams<T>
+>;
+
+type LocalizedText<T extends Record<string, unknown> = Record<string, never>> =
+  | string
+  | TranslationFn<T>;
+
+type TextMap = Record<string, LocalizedText<any>>;
 type TextBundle = Record<Locale, NamespaceTexts<any>[]>;
 
 type TextParams<T> = T extends (
@@ -96,25 +120,32 @@ type NamespaceTexts<T extends TextMap> = {
 
 type NamespaceKey = string; // NOSONAR
 
-type Namespace<T extends TextMap> = Readonly<{
-  key: NamespaceKey;
-  group: string | null;
+type Namespace<T extends TextMap> = {
+  readonly key: string;
+  readonly group: string | null;
   full(texts: T): NamespaceTexts<T>;
   partial(texts: Partial<T>): NamespaceTexts<T>;
-}>;
+};
+
+const x = createNamespace<{
+  name: string;
+  status: (params: { status: string }) => string;
+}>({
+  key: "some-namespace-key",
+});
 
 type I18n = {
-  getText<T extends TextMap, K extends keyof T>(
+  getText<T extends TextMap, K extends TextKeysWithoutParams<T>>(
     locale: Locale,
     namespace: Namespace<T>,
     key: K,
-    params: TextParams<T[K]>,
   ): string;
 
-  getText<T extends TextMap, K extends keyof T>(
+  getText<T extends TextMap, K extends TextKeysWithParams<T>>(
     locale: Locale,
     namespace: Namespace<T>,
-    key: SimpleTextKey<K, T[K]>,
+    key: K,
+    params: TranslationParams<T[K]>,
   ): string;
 
   getLocalizer(locale: Locale): Localizer;
@@ -155,9 +186,15 @@ type LocalizeControllerHost = {
   addController(controller: LocalizeController): void;
 };
 
+type ExactKeys<T, Shape> = T extends Shape
+  ? Shape extends T
+    ? T
+    : never
+  : never;
+
 // === local state =============================================================
 
-// Will be created lazily (see: getI18n)
+// Will be created lazily (see: getI18n).
 let i18n: I18n | null = null;
 
 // State used by function `initI18n` - shall only be callable once.
@@ -262,6 +299,13 @@ function createNamespace<T extends TextMap>(params: {
   return namespace;
 }
 
+const y = createNamespace<{
+  x: string;
+  y: (params: { name: string }, localizer: Localizer) => string;
+}>({
+  key: "xyz",
+});
+
 function localize(host: LocalizeControllerHost, i18n?: I18n) {
   return new DefaultLocalizeController(host, i18n);
 }
@@ -278,8 +322,10 @@ class DefaultI18n implements I18n {
   readonly #getConfig: () => I18nConfig;
   readonly #primaryLocaleListners: ChangeListener[] = [];
   readonly #fallbackLocalesListners: ChangeListener[] = [];
-  #dict: Record<Locale, Record<NamespaceKey, Record<string, LocalizedText>>> =
-    createRecord();
+  #dict: Record<
+    Locale,
+    Record<NamespaceKey, Record<string, LocalizedText<any>>>
+  > = createRecord();
   #localizerByLocale: Record<Locale, Localizer> = createRecord();
   #textsToAdd: Record<Locale, NamespaceTexts<any>[]>[] | null;
 
@@ -347,7 +393,7 @@ class DefaultI18n implements I18n {
 
   #applyNamespaceBundle(
     locale: string,
-    byNamespace: Record<NamespaceKey, Record<string, LocalizedText>>,
+    byNamespace: Record<NamespaceKey, Record<string, LocalizedText<any>>>,
     bundle: NamespaceTexts<any>,
   ): void {
     const namespaceKey = bundle.namespace.key;
@@ -371,7 +417,7 @@ class DefaultI18n implements I18n {
 
   #getOrCreateLocale(
     locale: string,
-  ): Record<NamespaceKey, Record<string, LocalizedText>> {
+  ): Record<NamespaceKey, Record<string, LocalizedText<any>>> {
     const normalizedLocale = this.#normalizeLocaleKey(locale);
 
     let byNamespace = this.#dict[normalizedLocale];
@@ -405,11 +451,11 @@ class DefaultI18n implements I18n {
     key: SimpleTextKey<K, T[K]>,
   ): string;
 
-  getText(
+  getText<T extends TextMap>(
     locale: Locale,
-    namespace: Namespace<any>,
+    namespace: Namespace<T>,
     key: string,
-    params: Record<string, LocalizedText> | null = null,
+    params: Record<string, LocalizedText<any>> | null = null,
   ) {
     this.#init();
 
@@ -455,7 +501,7 @@ class DefaultI18n implements I18n {
     locale: Intl.Locale,
     namespaceKey: NamespaceKey,
     key: TextKey,
-    params: Record<string, LocalizedText> | null,
+    params: Record<string, LocalizedText<any>> | null,
   ): string {
     const localesToTry: string[] = [locale.baseName];
 
@@ -499,7 +545,7 @@ class DefaultI18n implements I18n {
     locale: string,
     namespaceKey: NamespaceKey,
     key: TextKey,
-    params: Record<string, LocalizedText> | null,
+    params: Record<string, LocalizedText<any>> | null,
   ): string | null {
     const byNamespace = this.#dict[locale];
     if (!byNamespace) return null;
@@ -575,7 +621,7 @@ class DefaultLocalizer implements Localizer {
   getText(
     namespace: Namespace<any>,
     key: string,
-    params: Record<string, LocalizedText> | null = null,
+    params: Record<string, LocalizedText<any>> | null = null,
   ) {
     return this.#i18n.getText(
       this.#getLocale(),
