@@ -71,10 +71,6 @@ type TranslationFn<T extends Record<string, unknown>> = (
 
 type TranslationParams<T> = T extends TranslationFn<infer P> ? P : never;
 
-type Translation2<T extends Record<string, unknown> = Record<string, never>> =
-  | string
-  | TranslationFn<T>;
-
 type Translation<T extends Record<string, unknown> = never> = [T] extends [
   never,
 ]
@@ -166,7 +162,17 @@ type I18nConfig = {
 };
 
 type Localizer = {
-  getText<T extends TextMap>(namespace: Namespace<T>, key: keyof T): string;
+  getText<T extends TextMap, K extends TextKeysWithoutParams<T>>(
+    namespace: Namespace<T>,
+    key: K,
+  ): string;
+
+  getText<T extends TextMap, K extends TextKeysWithParams<T>>(
+    namespace: Namespace<T>,
+    key: K,
+    params: TranslationParams<T[K]>,
+  ): string;
+
   formatNumber(value: number, option?: Intl.NumberFormatOptions): string;
   numberFormat(option?: Intl.NumberFormatOptions): Intl.NumberFormat;
   formatDateTime(value: Date, option?: Intl.DateTimeFormatOptions): string;
@@ -623,12 +629,9 @@ class DefaultLocalizer implements Localizer {
     key: string,
     params: Record<string, LocalizedText<any>> | null = null,
   ) {
-    return this.#i18n.getText(
-      this.#getLocale(),
-      namespace,
-      key,
-      params || null,
-    );
+    return params
+      ? this.#i18n.getText(this.#getLocale(), namespace, key, params)
+      : this.#i18n.getText(this.#getLocale(), namespace, key as any);
   }
 
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
