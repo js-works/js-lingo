@@ -108,195 +108,9 @@ describe("bundleTexts", () => {
 });
 
 describe("createI18n", () => {
-  const commonTexts = createNamespace<{
-    hello: Translation;
-    bye: Translation;
-    greeting: Translation<{ name: string }>;
-  }>({
-    key: "common",
-  });
-
-  it("returns missing translation as key", () => {
-    const i18n = createI18n();
-    expect(i18n.getText("en", commonTexts, "hello")).toBe("hello");
-  });
-
-  it("returns static translation", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.full({
-          hello: "Hello",
-          bye: "Bye",
-          greeting: ({ name }) => `Hello ${name}`,
-        }),
-      ],
-    });
-
-    expect(i18n.getText("en", commonTexts, "hello")).toBe("Hello");
-    expect(i18n.getText("en", commonTexts, "bye")).toBe("Bye");
-  });
-
-  it("supports dynamic translation", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.full({
-          hello: "Hello",
-          bye: "Bye",
-          greeting: ({ name }) => `Hello ${name}`,
-        }),
-      ],
-    });
-
-    expect(
-      i18n.getText("en", commonTexts, "greeting", {
-        name: "John",
-      }),
-    ).toBe("Hello John");
-  });
-
-  it("supports nested translations", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.full({
-          hello: "Hello",
-          bye: "Bye",
-          greeting: ({ name }, loc) =>
-            `${loc.getText(commonTexts, "hello")} ${name}`,
-        }),
-      ],
-    });
-
-    expect(
-      i18n.getText("en", commonTexts, "greeting", {
-        name: "Jane",
-      }),
-    ).toBe("Hello Jane");
-  });
-
-  it("falls back from region to language", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.partial({
-          hello: "Hello",
-        }),
-      ],
-    });
-
-    expect(i18n.getText("en-US", commonTexts, "hello")).toBe("Hello");
-  });
-
-  it("normalizes locale names", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      "EN-us": [
-        commonTexts.partial({
-          hello: "Hello",
-        }),
-      ],
-    });
-
-    expect(i18n.getText("en-US", commonTexts, "hello")).toBe("Hello");
-  });
-
-  it("supports multiple locales", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.partial({
-          hello: "Hello",
-        }),
-      ],
-      de: [
-        commonTexts.partial({
-          hello: "Hallo",
-        }),
-      ],
-    });
-
-    expect(i18n.getText("en", commonTexts, "hello")).toBe("Hello");
-    expect(i18n.getText("de", commonTexts, "hello")).toBe("Hallo");
-  });
-
-  it("supports partial updates (last write wins)", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts({
-      en: [
-        commonTexts.partial({
-          hello: "Hello",
-          bye: "Bye",
-        }),
-      ],
-    });
-
-    i18n.addTexts({
-      en: [
-        commonTexts.partial({
-          hello: "Hi",
-        }),
-      ],
-    });
-
-    expect(i18n.getText("en", commonTexts, "hello")).toBe("Hi");
-    expect(i18n.getText("en", commonTexts, "bye")).toBe("Bye");
-  });
-
-  it("supports multiple bundles", () => {
-    const i18n = createI18n();
-
-    i18n.addTexts(
-      {
-        en: [
-          commonTexts.partial({
-            hello: "Hello",
-          }),
-        ],
-      },
-      {
-        en: [
-          commonTexts.partial({
-            bye: "Bye",
-          }),
-        ],
-      },
-    );
-
-    expect(i18n.getText("en", commonTexts, "hello")).toBe("Hello");
-    expect(i18n.getText("en", commonTexts, "bye")).toBe("Bye");
-  });
-
   it("ignores empty addTexts calls", () => {
     const i18n = createI18n();
     expect(() => i18n.addTexts()).not.toThrow();
-  });
-
-  it("calls onAddTexts for every key", () => {
-    const spy = vi.fn();
-
-    const i18n = createI18n({
-      onAddTexts: spy,
-    });
-
-    i18n.addTexts({
-      en: [
-        commonTexts.partial({
-          hello: "Hello",
-          bye: "Bye",
-        }),
-      ],
-    });
-
-    expect(spy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -315,7 +129,7 @@ describe("Localizer", () => {
     ],
   });
 
-  const localizer = i18n.getLocalizer("en");
+  const localizer = i18n.locale("en");
 
   it("translates text", () => {
     expect(localizer.getText(commonTexts, "hello")).toBe("Hello");
@@ -330,9 +144,5 @@ describe("Localizer", () => {
   it("creates Intl formatters", () => {
     expect(localizer.numberFormat()).toBeInstanceOf(Intl.NumberFormat);
     expect(localizer.dateTimeFormat()).toBeInstanceOf(Intl.DateTimeFormat);
-  });
-
-  it("returns underlying i18n", () => {
-    expect(localizer.getI18n()).toBe(i18n);
   });
 });

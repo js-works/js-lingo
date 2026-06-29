@@ -46,7 +46,6 @@ export type {
   Locale,
   LocalizeController,
   LocalizeControllerHost,
-  LocalizedText,
   Namespace,
   NamespaceKey,
   NamespaceTexts,
@@ -54,6 +53,7 @@ export type {
   TextKey,
   TextMap,
   Translation,
+  TranslationFn,
   Unsubscribe,
 };
 
@@ -71,6 +71,9 @@ type TranslationFn<T extends Record<string, unknown>> = (
 
 type TranslationParams<T> = T extends TranslationFn<infer P> ? P : never;
 
+// `never` is used as a sentinel value. If no parameter type is supplied,
+// a translation is just a string; otherwise it's a parameterized
+// translation function.
 type Translation<T extends Record<string, unknown> = never> = [T] extends [
   never,
 ]
@@ -131,21 +134,8 @@ const x = createNamespace<{
 });
 
 type I18n = {
-  getText<T extends TextMap, K extends TextKeysWithoutParams<T>>(
-    locale: Locale,
-    namespace: Namespace<T>,
-    key: K,
-  ): string;
-
-  getText<T extends TextMap, K extends TextKeysWithParams<T>>(
-    locale: Locale,
-    namespace: Namespace<T>,
-    key: K,
-    params: TranslationParams<T[K]>,
-  ): string;
-
-  getLocalizer(locale: Locale): Localizer;
   addTexts(...textBundles: TextBundle[]): void;
+  locale(locale: Locale): Localizer;
   getPrimaryLocale(): Locale;
   onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe;
   getFallbackLocales(): Locale[];
@@ -177,8 +167,7 @@ type Localizer = {
   numberFormat(option?: Intl.NumberFormatOptions): Intl.NumberFormat;
   formatDateTime(value: Date, option?: Intl.DateTimeFormatOptions): string;
   dateTimeFormat(option?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat;
-  getLocalizer(locale: Locale): Localizer;
-  getI18n(): I18n;
+  locale(locale: Locale): Localizer;
 };
 
 type LocalizeController = {
@@ -197,18 +186,6 @@ type ExactKeys<T, Shape> = T extends Shape
     ? T
     : never
   : never;
-
-// === local state =============================================================
-
-// Will be created lazily (see: getI18n).
-let i18n: I18n | null = null;
-
-// State used by function `initI18n` - shall only be callable once.
-let initI18nHasAlreadyBeenCalled = false;
-
-// Shared state betweeen functions `initI18n` and `getI18n`.
-let i18nConfig: I18nConfig | null = null;
-let i18nHasAlreadyBeenInitialized = false;
 
 // === internal functions ======================================================
 
@@ -237,26 +214,26 @@ function initI18n(config: I18nConfig) {
     throw new Error("Function 'initI18n' can only be called once.");
   }
 
-  if (i18nHasAlreadyBeenInitialized) {
+  if (globalI18nHasAlreadyBeenInitialized) {
     throw new Error(
       "Too late to call function 'initI18n' - i18n has already been initialized.",
     );
   }
 
   initI18nHasAlreadyBeenCalled = true;
-  i18nConfig = { ...config };
+  globalI18nConfig = { ...config };
 }
 
 function getI18n() {
   let config: I18nConfig | null = null;
 
-  if (!i18n) {
+  if (!globalI18n) {
     const getConfig = () => {
       if (config) {
         return config;
       }
 
-      config = i18nConfig ?? {};
+      config = globalI18nConfig ?? {};
 
       if (
         isClientSide() &&
@@ -268,19 +245,22 @@ function getI18n() {
         config.onPrimaryLocaleChange = (listener) => monitor.onChange(listener);
       }
 
-      i18nConfig = null; // Not needed any longer.
+      globalI18nConfig = null; // Not needed any longer.
       return config;
     };
 
-    i18n = new DefaultI18n(getConfig, true);
+    globalI18n = new DefaultI18n(globalDict, getConfig, true);
   }
 
-  return i18n;
+  return globalI18n;
 }
 
 function createI18n(config: I18nConfig = {}): I18n {
   const clonedConfig = { ...config };
-  return new DefaultI18n(() => clonedConfig);
+  let i18n: I18n;
+  const dict = new Dictionary((locale) => i18n.locale(locale));
+  i18n = new DefaultI18n(dict, () => clonedConfig);
+  return i18n;
 }
 
 function createNamespace<T extends TextMap>(params: {
@@ -305,15 +285,8 @@ function createNamespace<T extends TextMap>(params: {
   return namespace;
 }
 
-const y = createNamespace<{
-  x: string;
-  y: (params: { name: string }, localizer: Localizer) => string;
-}>({
-  key: "xyz",
-});
-
-function localize(host: LocalizeControllerHost, i18n?: I18n) {
-  return new DefaultLocalizeController(host, i18n);
+function localize(host: LocalizeControllerHost) {
+  return new DefaultLocalizeController(host);
 }
 
 // For type safety and expressiveness.
@@ -323,21 +296,17 @@ function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
 
 // === internal classes ========================================================
 
-class DefaultI18n implements I18n {
-  #config: I18nConfig | null = null;
-  readonly #getConfig: () => I18nConfig;
-  readonly #primaryLocaleListners: ChangeListener[] = [];
-  readonly #fallbackLocalesListners: ChangeListener[] = [];
-  #dict: Record<
+class Dictionary {
+  readonly #data: Record<
     Locale,
     Record<NamespaceKey, Record<string, LocalizedText<any>>>
   > = createRecord();
-  #localizerByLocale: Record<Locale, Localizer> = createRecord();
-  #textsToAdd: Record<Locale, NamespaceTexts<any>[]>[] | null;
 
-  constructor(getConfig: () => I18nConfig, addTextsLazily = false) {
-    this.#getConfig = getConfig;
-    this.#textsToAdd = addTextsLazily ? [] : null;
+  readonly #getLocalizer: (locale: Locale) => Localizer;
+
+  constructor(getLocalizer: (locale: Locale) => Localizer) {
+    this.#data = {};
+    this.#getLocalizer = getLocalizer;
   }
 
   addTexts(...bundles: TextBundle[]): void {
@@ -353,95 +322,8 @@ class DefaultI18n implements I18n {
     }
 
     const textBundle = bundles[0];
-
-    // normalize BEFORE buffering
     const normalizedBundle = this.#normalizeTextBundle(textBundle);
-
-    if (this.#textsToAdd) {
-      this.#textsToAdd.push(normalizedBundle);
-      return;
-    }
-
     this.#applyTextBundle(normalizedBundle);
-  }
-
-  #normalizeTextBundle(texts: TextBundle): TextBundle {
-    const result: TextBundle = {};
-
-    for (const [locale, namespaceBundles] of Object.entries(texts)) {
-      const normalizedLocale = this.#normalizeLocaleKey(locale);
-
-      result[normalizedLocale] ??= [];
-
-      result[normalizedLocale].push(...namespaceBundles);
-    }
-
-    return result;
-  }
-
-  #normalizeLocaleKey(locale: string): string {
-    try {
-      return new Intl.Locale(locale).baseName;
-    } catch {
-      return locale;
-    }
-  }
-
-  #applyTextBundle(texts: TextBundle): void {
-    for (const [locale, namespaceBundles] of Object.entries(texts)) {
-      const byNamespace = this.#getOrCreateLocale(locale);
-
-      for (const bundle of namespaceBundles) {
-        this.#applyNamespaceBundle(locale, byNamespace, bundle);
-      }
-    }
-  }
-
-  #applyNamespaceBundle(
-    locale: string,
-    byNamespace: Record<NamespaceKey, Record<string, LocalizedText<any>>>,
-    bundle: NamespaceTexts<any>,
-  ): void {
-    const namespaceKey = bundle.namespace.key;
-
-    let texts = byNamespace[namespaceKey];
-
-    if (!texts) {
-      texts = createRecord();
-      byNamespace[namespaceKey] = texts;
-    }
-
-    for (const key in bundle.texts) {
-      const value = bundle.texts[key];
-
-      // last-write-wins
-      texts[key] = value;
-
-      this.#notifyAddText(locale, bundle.namespace, key);
-    }
-  }
-
-  #getOrCreateLocale(
-    locale: string,
-  ): Record<NamespaceKey, Record<string, LocalizedText<any>>> {
-    const normalizedLocale = this.#normalizeLocaleKey(locale);
-
-    let byNamespace = this.#dict[normalizedLocale];
-
-    if (!byNamespace) {
-      byNamespace = createRecord();
-      this.#dict[normalizedLocale] = byNamespace;
-    }
-
-    return byNamespace;
-  }
-
-  #notifyAddText(locale: string, namespace: Namespace<any>, key: string): void {
-    const config = this.#getConfig();
-
-    if (config.onAddTexts) {
-      config.onAddTexts(locale, namespace, key);
-    }
   }
 
   getText<T extends TextMap, K extends keyof T>(
@@ -463,44 +345,12 @@ class DefaultI18n implements I18n {
     key: string,
     params: Record<string, LocalizedText<any>> | null = null,
   ) {
-    this.#init();
-
     return this.#getText(
       new Intl.Locale(locale),
       namespace.key,
       key,
       params ?? null,
     );
-  }
-
-  getLocalizer(locale: Locale): Localizer {
-    this.#init();
-    let localizer = this.#localizerByLocale[locale];
-
-    if (!localizer) {
-      localizer = new DefaultLocalizer(this, () => locale);
-      this.#localizerByLocale[locale] = localizer;
-    }
-
-    return localizer;
-  }
-
-  getPrimaryLocale(): Locale {
-    return "en-US";
-  }
-
-  onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe {
-    this.#primaryLocaleListners.push(listener);
-    return () => {};
-  }
-
-  getFallbackLocales(): Locale[] {
-    return [];
-  }
-
-  onFallbackLocalesChange(listener: ChangeListener): Unsubscribe {
-    this.#fallbackLocalesListners.push(listener);
-    return () => {};
   }
 
   #getText(
@@ -553,7 +403,7 @@ class DefaultI18n implements I18n {
     key: TextKey,
     params: Record<string, LocalizedText<any>> | null,
   ): string | null {
-    const byNamespace = this.#dict[locale];
+    const byNamespace = this.#data[locale];
     if (!byNamespace) return null;
 
     const entries = byNamespace[namespaceKey];
@@ -576,16 +426,137 @@ class DefaultI18n implements I18n {
         return null;
       }
 
-      const localizer = this.getLocalizer(locale);
+      const localizer = this.#getLocalizer(locale);
       return value(params, localizer);
     }
 
     return null;
   }
 
+  #normalizeTextBundle(texts: TextBundle): TextBundle {
+    const result: TextBundle = {};
+
+    for (const [locale, namespaceBundles] of Object.entries(texts)) {
+      const normalizedLocale = this.#normalizeLocaleKey(locale);
+
+      result[normalizedLocale] ??= [];
+
+      result[normalizedLocale].push(...namespaceBundles);
+    }
+
+    return result;
+  }
+
+  #normalizeLocaleKey(locale: string): string {
+    try {
+      return new Intl.Locale(locale).baseName;
+    } catch {
+      return locale;
+    }
+  }
+
+  #applyTextBundle(texts: TextBundle): void {
+    for (const [locale, namespaceBundles] of Object.entries(texts)) {
+      const byNamespace = this.#getOrCreateLocale(locale);
+
+      for (const bundle of namespaceBundles) {
+        this.#applyNamespaceBundle(locale, byNamespace, bundle);
+      }
+    }
+  }
+
+  #applyNamespaceBundle(
+    locale: string,
+    byNamespace: Record<NamespaceKey, Record<string, LocalizedText<any>>>,
+    bundle: NamespaceTexts<any>,
+  ): void {
+    const namespaceKey = bundle.namespace.key;
+
+    let texts = byNamespace[namespaceKey];
+
+    if (!texts) {
+      texts = createRecord();
+      byNamespace[namespaceKey] = texts;
+    }
+
+    for (const key in bundle.texts) {
+      const value = bundle.texts[key];
+      texts[key] = value; // Last write wins.
+    }
+  }
+
+  #getOrCreateLocale(
+    locale: string,
+  ): Record<NamespaceKey, Record<string, LocalizedText<any>>> {
+    const normalizedLocale = this.#normalizeLocaleKey(locale);
+
+    let byNamespace = this.#data[normalizedLocale];
+
+    if (!byNamespace) {
+      byNamespace = createRecord();
+      this.#data[normalizedLocale] = byNamespace;
+    }
+
+    return byNamespace;
+  }
+}
+
+class DefaultI18n implements I18n {
+  #dict: Dictionary;
+  #config: I18nConfig | null = null;
+  readonly #getConfig: () => I18nConfig;
+  readonly #primaryLocaleListners: ChangeListener[] = [];
+  readonly #fallbackLocalesListners: ChangeListener[] = [];
+  #localizerByLocale: Record<Locale, Localizer> = createRecord();
+  #textsToAdd: Record<Locale, NamespaceTexts<any>[]>[] | null;
+
+  constructor(
+    dict: Dictionary,
+    getConfig: () => I18nConfig,
+    addTextsLazily = false,
+  ) {
+    this.#dict = dict;
+    this.#getConfig = getConfig;
+    this.#textsToAdd = addTextsLazily ? [] : null;
+  }
+
+  addTexts(...bundles: TextBundle[]): void {
+    this.#dict.addTexts(...bundles);
+  }
+
+  locale(locale: Locale): Localizer {
+    this.#init();
+    let localizer = this.#localizerByLocale[locale];
+
+    if (!localizer) {
+      localizer = new DefaultLocalizer(this, this.#dict, () => locale);
+      this.#localizerByLocale[locale] = localizer;
+    }
+
+    return localizer;
+  }
+
+  getPrimaryLocale(): Locale {
+    return "en-US";
+  }
+
+  onPrimaryLocaleChange(listener: ChangeListener): Unsubscribe {
+    this.#primaryLocaleListners.push(listener);
+    return () => {};
+  }
+
+  getFallbackLocales(): Locale[] {
+    return [];
+  }
+
+  onFallbackLocalesChange(listener: ChangeListener): Unsubscribe {
+    this.#fallbackLocalesListners.push(listener);
+    return () => {};
+  }
+
   #init() {
-    if (this === i18n) {
-      i18nHasAlreadyBeenInitialized = true;
+    if (this === globalI18n) {
+      globalI18nHasAlreadyBeenInitialized = true;
     }
 
     if (this.#config) {
@@ -606,10 +577,12 @@ class DefaultI18n implements I18n {
 
 class DefaultLocalizer implements Localizer {
   readonly #i18n: I18n;
+  readonly #dict: Dictionary;
   readonly #getLocale: () => Locale;
 
-  constructor(i18n: I18n, getLocale: () => Locale) {
+  constructor(i18n: I18n, dict: Dictionary, getLocale: () => Locale) {
     this.#i18n = i18n;
+    this.#dict = dict;
     this.#getLocale = getLocale;
   }
 
@@ -630,8 +603,8 @@ class DefaultLocalizer implements Localizer {
     params: Record<string, LocalizedText<any>> | null = null,
   ) {
     return params
-      ? this.#i18n.getText(this.#getLocale(), namespace, key, params)
-      : this.#i18n.getText(this.#getLocale(), namespace, key as any);
+      ? this.#dict.getText(this.#getLocale(), namespace, key, params)
+      : this.#dict.getText(this.#getLocale(), namespace, key as any);
   }
 
   formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
@@ -650,12 +623,8 @@ class DefaultLocalizer implements Localizer {
     return new Intl.DateTimeFormat(this.#getLocale(), options);
   }
 
-  getLocalizer(locale: Locale): Localizer {
-    return this.#i18n.getLocalizer(locale);
-  }
-
-  getI18n(): I18n {
-    return this.#i18n;
+  locale(locale: Locale): Localizer {
+    return this.#i18n.locale(locale);
   }
 }
 
@@ -741,8 +710,8 @@ class DefaultLocalizeController
   #locale = getI18n().getPrimaryLocale();
   #unsubscribe: Unsubscribe | null = null;
 
-  constructor(host: LocalizeControllerHost, i18n: I18n = getI18n()) {
-    super(i18n, () => this.#locale);
+  constructor(host: LocalizeControllerHost) {
+    super(getI18n(), globalDict, () => this.#locale);
     this.#host = host;
     host.addController(this);
   }
@@ -775,3 +744,18 @@ class DefaultLocalizeController
     }
   }
 }
+
+// === local state =============================================================
+
+// Dictionary for the global I18n instance.
+const globalDict = new Dictionary((locale) => globalI18n!.locale(locale));
+
+// Will be created lazily (see: getI18n).
+let globalI18n: I18n | null = null;
+
+// State used by function `initI18n` - shall only be callable once.
+let initI18nHasAlreadyBeenCalled = false;
+let globalI18nHasAlreadyBeenInitialized = false;
+
+// Shared state betweeen functions `initI18n` and `getI18n`.
+let globalI18nConfig: I18nConfig | null = null;
