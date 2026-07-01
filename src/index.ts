@@ -1,35 +1,21 @@
 /**
- * Lightweight TypeScript i18n library with typed namespaces and functional translations.
+ * A lightweight, type-safe i18n library.
  *
- * Provides a minimal abstraction for managing localized texts without requiring
- * a message format DSL or code generation.
+ * Translations are plain TypeScript values (static strings or functions), grouped
+ * into typed namespaces, with no message DSL and no code generation.
  *
- * ## Core model
+ * Single module. Exports six functions (`bundleTexts`, `createI18n`,
+ * `createNamespace`, `getI18n`, `initI18n`, `localize`) plus a set of types.
  *
- * - Texts are grouped into namespaces created via `createNamespace`.
- * - A namespace is a typed identifier used to register and retrieve translations.
- * - Translations can be either:
- *   - string → static text
- *   - (params, localizer) => string → dynamic text
+ * NOTE: Locale tracking is wired through the instance config. `getPrimaryLocale()`,
+ * `getFallbackLocales()`, and `onLocaleChange` consult the resolved config; the config
+ * supplies the locale-change source, and `onLocaleChange` listeners fire whenever that
+ * source signals a change. On the client the global instance defaults to a `<html lang>`
+ * monitor as its source.
  *
- * ## Runtime usage
- *
- * - `getI18n()` returns the global i18n instance
- * - `initI18n(config)` initializes/customizes the global instance
- *    (must not be called more than once in the app)
- * - `createI18n(config)` creates an isolated i18n instance
- *
- * - `localize(host)` integrates i18n with reactive UI controllers
- *   (e.g. LitElement) and triggers updates on locale changes
- *
- * - `bundleTexts(texts)` provides type-safe grouping of translations per locale
- *
- * ## Design goals
- *
- * - Fully type-safe without code generation
- * - No custom message syntax (pure TypeScript functions)
- * - Minimal runtime footprint
- * - Works standalone or as a facade over other i18n systems
+ * Config is resolved lazily on first use of any locale method for the global instance
+ * (whose config arrives later, via `initI18n`); instances from `createI18n` resolve
+ * their config eagerly at construction.
  */
 
 export {
@@ -42,122 +28,134 @@ export {
 };
 
 export type {
-  ChangeListener,
   Locale,
   LocalizeController,
   LocalizeControllerHost,
+  TextKey,
+  TextMap,
   Namespace,
   NamespaceKey,
   NamespaceTexts,
   TextBundle,
-  TextKey,
-  TextMap,
   Translation,
-  TranslationFn,
   Unsubscribe,
 };
 
-// === types ===================================================================
+/* ------------------------------------------------------------------ *
+ * Types
+ * ------------------------------------------------------------------ */
 
-type Locale = string; // NOSONAR
-type TextKey = string; // NOSONAR
-type NamespaceKey = string; // NOSONAR
-type Unsubscribe = () => void;
-type ChangeListener = () => void;
+/* Primitive aliases */
 
+type Locale = string; // NOSONAR // a BCP-47 language tag, e.g. "en-US", "de", "zh-Hant-TW"
+type TextKey = string; // NOSONAR // a key within a namespace
+type NamespaceKey = string; // NOSONAR // a namespace's `key`
+type Unsubscribe = () => void; // returned by subscriptions; idempotent to call
+type ChangeListener = () => void; // a locale-change callback (no arguments)
+
+/* Translation values */
+
+// A parameterized translation: receives typed params and a Localizer, returns a string.
 type TranslationFn<T extends Record<string, unknown>> = (
   params: T,
   localizer: Localizer,
 ) => string;
 
+// Extracts the params object type from a TranslationFn. (internal)
 type TranslationParams<T> = T extends TranslationFn<infer P> ? P : never;
 
-// `never` is used as a sentinel value. If no parameter type is supplied,
-// a translation is just a string; otherwise it's a parameterized
-// translation function.
+// Convenience authoring alias:
+//   Translation             -> string                     (static text)
+//   Translation<{n:number}> -> TranslationFn<{n:number}>  (dynamic text)
 type Translation<T extends Record<string, unknown> = never> = [T] extends [
   never,
 ]
   ? string
   : TranslationFn<T>;
 
-type LocalizedText<T extends Record<string, unknown> = Record<string, never>> =
-  | string
-  | TranslationFn<T>;
+/* Namespaces and text maps */
 
-type TextMap = Record<string, LocalizedText<any>>;
-type TextBundle = Record<Locale, NamespaceTexts<any>[]>;
+// The shape of one namespace's translations: key -> static string | translation fn.
+type TextMap = Record<string, Translation | Translation<any>>;
 
-type AnyTranslationFn = (
-  params: Record<string, any>,
-  localizer: Localizer,
-) => string;
+// A typed namespace identifier. Immutable (frozen at runtime).
+type Namespace<T extends TextMap> = {
+  readonly key: string;
+  readonly group: string | null;
+  full(texts: T): NamespaceTexts<T>; // requires every key of T
+  partial(texts: Partial<T>): NamespaceTexts<T>; // allows a subset of keys
+};
 
-// Keys of a text map whose value is a parameterized translation function.
-type TextKeysWithParams<T extends Record<string, unknown>> = {
-  [K in keyof T]: T[K] extends TranslationFn<any> ? K : never;
-}[keyof T];
-
-// Keys of a text map whose value is a static string.
-type TextKeysWithoutParams<T extends TextMap> = Exclude<
-  keyof T,
-  TextKeysWithParams<T>
->;
-
-type TextParams<T> = T extends AnyTranslationFn ? Parameters<T>[0] : never;
-
-type SimpleTextKey<K, T> = T extends AnyTranslationFn
-  ? never
-  : K extends string
-    ? K
-    : never;
-
+// A namespace paired with (some of) its texts, produced by `full`/`partial`.
 type NamespaceTexts<T extends TextMap> = {
   namespace: Namespace<T>;
   texts: Partial<T>;
 };
 
-type Namespace<T extends TextMap> = {
-  readonly key: string;
-  readonly group: string | null;
-  full(texts: T): NamespaceTexts<T>;
-  partial(texts: Partial<T>): NamespaceTexts<T>;
-};
+// Translations grouped by locale, each locale mapping to a list of namespace text groups.
+type TextBundle = Record<Locale, NamespaceTexts<any>[]>;
 
-type I18n = {
-  addTexts(...textBundles: TextBundle[]): void;
-  locale(locale: Locale): Localizer;
-  getPrimaryLocale(): Locale;
-  getFallbackLocales(): Locale[];
-  onLocaleChange(listener: ChangeListener): Unsubscribe;
-};
+/* 1.4 Localizer (the read side) */
 
-type I18nConfig = {
-  getPrimaryLocale?(): Locale;
-  getFallbackLocales?(): Locale[];
-  onLocaleChange?(listener: ChangeListener): Unsubscribe;
-  onAddTexts?(locale: Locale, namespace: Namespace<any>, key: TextKey): void;
-  // More to come in future.
-};
+// Partition a TextMap's keys by whether their value is a function.
+type TextKeysWithParams<T extends Record<string, unknown>> = {
+  [K in keyof T]: T[K] extends TranslationFn<any> ? K : never;
+}[keyof T];
 
+type TextKeysWithoutParams<T extends TextMap> = Exclude<
+  keyof T,
+  TextKeysWithParams<T>
+>;
+
+// A Localizer resolves and formats text for one active locale. (internal)
 type Localizer = {
+  // Overload 1 — static keys (value is a string): no params.
   getText<T extends TextMap, K extends TextKeysWithoutParams<T>>(
     namespace: Namespace<T>,
     key: K,
   ): string;
 
+  // Overload 2 — dynamic keys (value is a TranslationFn): params required, typed to the fn.
   getText<T extends TextMap, K extends TextKeysWithParams<T>>(
     namespace: Namespace<T>,
     key: K,
     params: TranslationParams<T[K]>,
   ): string;
 
-  formatNumber(value: number, option?: Intl.NumberFormatOptions): string;
-  numberFormat(option?: Intl.NumberFormatOptions): Intl.NumberFormat;
-  formatDateTime(value: Date, option?: Intl.DateTimeFormatOptions): string;
-  dateTimeFormat(option?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat;
-  locale(locale: Locale): Localizer;
+  formatNumber(value: number, options?: Intl.NumberFormatOptions): string;
+  numberFormat(options?: Intl.NumberFormatOptions): Intl.NumberFormat;
+  formatDateTime(value: Date, options?: Intl.DateTimeFormatOptions): string;
+  dateTimeFormat(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat;
+  locale(locale: Locale): Localizer; // a Localizer for a different locale on the same instance
 };
+
+// Broad shape of the single runtime getText body (assignable to both overloads).
+type GetTextImpl = (
+  namespace: Namespace<any>,
+  key: any,
+  params?: any,
+) => string;
+
+/* I18n and its config */
+
+// (internal)
+type I18n = {
+  addTexts(...textBundles: TextBundle[]): void;
+  locale(locale: Locale): Localizer; // a Localizer bound to `locale`
+  getPrimaryLocale(): Locale;
+  getFallbackLocales(): Locale[];
+  onLocaleChange(listener: ChangeListener): Unsubscribe;
+};
+
+// (internal)
+type I18nConfig = {
+  getPrimaryLocale?(): Locale;
+  getFallbackLocales?(): Locale[];
+  onLocaleChange?(listener: ChangeListener): Unsubscribe;
+  onAddTexts?(locale: Locale, namespace: Namespace<any>, key: TextKey): void;
+};
+
+/* Reactive controller integration */
 
 type LocalizeController = {
   hostConnected(): void;
@@ -170,31 +168,29 @@ type LocalizeControllerHost = {
   addController(controller: LocalizeController): void;
 };
 
-// Internal dictionary shape: locale → namespace key → text key → translation.
-type NamespaceTextMap = Record<NamespaceKey, TextMap>;
-type Params = Record<string, LocalizedText<any>> | null;
+/* ------------------------------------------------------------------ *
+ * Internal storage shapes
+ * ------------------------------------------------------------------ */
 
-// === internal helpers ========================================================
+type TextValue = string | TranslationFn<any>;
+type NamespaceRecord = Record<string, TextValue>; // textKey -> value
+type LocaleRecord = Record<string, NamespaceRecord>; // namespaceKey -> NamespaceRecord
+type Dictionary = Record<string, LocaleRecord>; // locale -> LocaleRecord
 
-function createRecord(): any {
-  return Object.create(null);
+/** Create a null-prototype record so keys like "toString" behave as missing. */
+function createRecord<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
 }
 
-function freeze<T extends Record<string, any>>(obj: T): Readonly<T> {
-  return Object.freeze(obj);
-}
+/* ------------------------------------------------------------------ *
+ * Locale normalization
+ * ------------------------------------------------------------------ */
 
-function isClientSide(): boolean {
-  return (
-    globalThis.window === globalThis &&
-    typeof document === "object" &&
-    globalThis.document === document &&
-    typeof document.documentElement === "object" &&
-    typeof MutationObserver === "function"
-  );
-}
-
-function normalizeLocale(locale: string): string {
+/**
+ * normalize(locale) = new Intl.Locale(locale).baseName
+ * On an invalid tag (constructor throws), returns the raw input unchanged.
+ */
+function normalizeLocale(locale: Locale): string {
   try {
     return new Intl.Locale(locale).baseName;
   } catch {
@@ -202,433 +198,475 @@ function normalizeLocale(locale: string): string {
   }
 }
 
-// === exported functions ======================================================
+/* ------------------------------------------------------------------ *
+ * Fallback locale chain
+ * ------------------------------------------------------------------ */
 
-function initI18n(config: I18nConfig): void {
-  if (globalState.initCalled) {
-    throw new Error("Function 'initI18n' can only be called once.");
-  }
+/**
+ * Build an ordered, de-duplicated chain of normalized tags, most -> least specific.
+ * Parsing `locale` may throw on an invalid tag; that error propagates to the caller.
+ *
+ *   "de-CH"      -> ["de-CH", "de"]
+ *   "en-US"      -> ["en-US", "en"]
+ *   "zh-Hant-TW" -> ["zh-Hant-TW", "zh-TW", "zh"]
+ */
+function buildFallbackLocaleChain(locale: Locale): Locale[] {
+  const loc = new Intl.Locale(locale); // throws on invalid tag -> propagates
+  const chain: string[] = [];
+  const seen = new Set<string>();
 
-  if (globalState.initialized) {
-    throw new Error(
-      "Too late to call function 'initI18n' - i18n has already been initialized.",
-    );
-  }
-
-  globalState.initCalled = true;
-  globalState.config = { ...config };
-}
-
-function getI18n(): I18n {
-  if (globalState.instance) {
-    return globalState.instance;
-  }
-
-  let config: I18nConfig | null = null;
-
-  const getConfig = (): I18nConfig => {
-    if (config) {
-      return config;
+  const push = (tag: string): void => {
+    const normalized = normalizeLocale(tag);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      chain.push(normalized);
     }
-
-    config = globalState.config ?? {};
-
-    if (isClientSide() && !config.getPrimaryLocale && !config.onLocaleChange) {
-      const monitor = new DocumentLocaleMonitor(document);
-      config.getPrimaryLocale = () => monitor.getLocale() || "en-US";
-      config.onLocaleChange = (listener) => monitor.onChange(listener);
-    }
-
-    globalState.config = null; // Not needed any longer.
-    return config;
   };
 
-  globalState.instance = new DefaultI18n(globalDict, getConfig, true);
-  return globalState.instance;
+  // 1. canonical full tag
+  push(loc.baseName);
+  // 2. "<language>-<region>" when both present — preferred over the bare language so a
+  //    region-specific match wins. Contributes a NEW tag only when a script subtag is
+  //    present; otherwise it equals the canonical full tag and is dropped by de-dup.
+  if (loc.language && loc.region) {
+    push(`${loc.language}-${loc.region}`);
+  }
+  // 3. bare language subtag
+  if (loc.language) {
+    push(loc.language);
+  }
+
+  return chain;
 }
 
-function createI18n(config: I18nConfig = {}): I18n {
-  const clonedConfig = { ...config };
-  let i18n: I18n;
-  const dict = new Dictionary((locale) => i18n.locale(locale));
-  i18n = new DefaultI18n(dict, () => clonedConfig);
+/**
+ * Ordered, de-duplicated resolution chain: the requested locale's own tag chain
+ * (most -> least specific) followed by each configured fallback locale's tag chain.
+ * The requested tag is parsed first and an invalid tag propagates (as before); an
+ * invalid fallback tag is skipped rather than aborting resolution.
+ */
+function buildResolutionChain(
+  locale: Locale,
+  fallbackLocales: Locale[],
+): Locale[] {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+
+  const merge = (tags: string[]): void => {
+    for (const tag of tags) {
+      if (!seen.has(tag)) {
+        seen.add(tag);
+        chain.push(tag);
+      }
+    }
+  };
+
+  // requested locale first (an invalid requested tag still propagates)
+  merge(buildFallbackLocaleChain(locale));
+
+  // then each configured fallback locale, expanded the same way
+  for (const fallback of fallbackLocales) {
+    try {
+      merge(buildFallbackLocaleChain(fallback));
+    } catch {
+      // skip an invalid fallback tag without breaking resolution
+    }
+  }
+
+  return chain;
+}
+
+/* ------------------------------------------------------------------ *
+ * getText resolution
+ * ------------------------------------------------------------------ */
+
+function resolveText(
+  dictionary: Dictionary,
+  i18n: I18n,
+  locale: Locale,
+  namespace: Namespace<any>,
+  key: string,
+  params: unknown,
+): string {
+  // Requested locale's tag chain, then each configured fallback locale's tag chain.
+  // Building the requested locale's chain throws on an invalid tag (propagates).
+  const chain = buildResolutionChain(locale, i18n.getFallbackLocales());
+
+  for (const candidate of chain) {
+    const value = dictionary[candidate]?.[namespace.key]?.[key];
+
+    if (typeof value === "string") {
+      // static -> return immediately
+      return value;
+    }
+
+    if (typeof value === "function" && params != null) {
+      // dynamic with params -> invoke with a localizer for the FOUND locale
+      return value(params, i18n.locale(candidate));
+    }
+
+    // absent, function-without-params, or non-string/non-function -> skip
+  }
+
+  // nothing usable -> return the key string itself
+  return key;
+}
+
+/* ------------------------------------------------------------------ *
+ * I18n factory
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build an I18n instance backed by the given dictionary. `resolveConfig` runs at most
+ * once. When `lazy` is true (the global instance, whose config is supplied later via
+ * `initI18n`) it runs on first use of any locale method; otherwise it runs eagerly at
+ * construction, so `addTexts` notifies `onAddTexts` directly rather than buffering.
+ */
+function createI18nInstance(
+  dictionary: Dictionary,
+  resolveConfig: () => I18nConfig,
+  lazy: boolean,
+): I18n {
+  const localizerCache = new Map<string, Localizer>();
+  const changeListeners = new Set<ChangeListener>();
+  // Add-notifications recorded while `initialized === false`. Replayed to
+  // `config.onAddTexts` once the config is resolved. Only fills for the global
+  // instance, since non-global instances are initialized eagerly below.
+  const pendingAddNotifications: {
+    locale: Locale;
+    namespace: Namespace<any>;
+    key: TextKey;
+  }[] = [];
+  let initialized = false;
+  let config: I18nConfig = {};
+
+  // Buffer before init (config/onAddTexts unknown), notify directly after.
+  // MUST NOT call ensureInitialized — addTexts has to stay callable before initI18n.
+  function notifyAddText(
+    locale: Locale,
+    namespace: Namespace<any>,
+    key: TextKey,
+  ): void {
+    if (initialized) {
+      config.onAddTexts?.(locale, namespace, key);
+    } else {
+      pendingAddNotifications.push({ locale, namespace, key });
+    }
+  }
+
+  // Lazy one-time initialization (§3.4): resolve the config, then bridge the config's
+  // locale-change source to this instance's own listeners so they actually fire.
+  function ensureInitialized(): void {
+    if (initialized) return;
+    initialized = true;
+    config = resolveConfig();
+    config.onLocaleChange?.(() => {
+      for (const listener of [...changeListeners] /* NOSONAR */) listener();
+    });
+    // Replay add-notifications recorded before init, in registration order.
+    if (config.onAddTexts) {
+      for (const { locale, namespace, key } of pendingAddNotifications) {
+        config.onAddTexts(locale, namespace, key);
+      }
+    }
+    pendingAddNotifications.length = 0;
+  }
+
+  function makeLocalizer(activeLocale: string): Localizer {
+    const getText: GetTextImpl = (namespace, key, params = null) =>
+      resolveText(
+        dictionary,
+        i18n,
+        activeLocale,
+        namespace,
+        key as string,
+        params,
+      );
+
+    const localizer: Localizer = {
+      getText,
+      formatNumber(value, options) {
+        return new Intl.NumberFormat(activeLocale, options).format(value);
+      },
+      numberFormat(options) {
+        return new Intl.NumberFormat(activeLocale, options);
+      },
+      formatDateTime(value, options) {
+        return new Intl.DateTimeFormat(activeLocale, options).format(value);
+      },
+      dateTimeFormat(options) {
+        return new Intl.DateTimeFormat(activeLocale, options);
+      },
+      locale(tag) {
+        return i18n.locale(tag);
+      },
+    };
+
+    return localizer;
+  }
+
+  const i18n: I18n = {
+    addTexts(...textBundles: TextBundle[]): void {
+      for (const bundle of textBundles) {
+        // Merge locale keys that normalize equally, concatenating their arrays.
+        const merged = createRecord<NamespaceTexts<any>[]>();
+        for (const rawLocale of Object.keys(bundle)) {
+          const normalized = normalizeLocale(rawLocale);
+          (merged[normalized] ??= []).push(...bundle[rawLocale]); // NOSONAR
+        }
+
+        for (const normalized of Object.keys(merged)) {
+          const localeRecord = (dictionary[normalized] ??=
+            createRecord<NamespaceRecord>());
+
+          for (const { namespace, texts } of merged[normalized]) {
+            const nsRecord = (localeRecord[namespace.key] ??=
+              createRecord<TextValue>());
+            // Object.assign semantics: last write wins.
+            Object.assign(nsRecord, texts);
+            for (const key of Object.keys(texts)) {
+              notifyAddText(normalized, namespace, key);
+            }
+          }
+        }
+      }
+    },
+
+    locale(locale: Locale): Localizer {
+      ensureInitialized(); // first touch triggers one-time initialization
+
+      // Memoize one Localizer per distinct `locale` string argument.
+      let localizer = localizerCache.get(locale);
+      if (!localizer) {
+        localizer = makeLocalizer(locale);
+        localizerCache.set(locale, localizer);
+      }
+      return localizer;
+    },
+
+    getPrimaryLocale(): Locale {
+      ensureInitialized();
+      return config.getPrimaryLocale?.() ?? "en-US";
+    },
+
+    getFallbackLocales(): Locale[] {
+      ensureInitialized();
+      return config.getFallbackLocales ? [...config.getFallbackLocales()] : [];
+    },
+
+    onLocaleChange(listener: ChangeListener): Unsubscribe {
+      ensureInitialized();
+      changeListeners.add(listener);
+      return () => {
+        changeListeners.delete(listener); // idempotent
+      };
+    },
+  };
+
+  // Non-global instances resolve config now (lazy === false), so addTexts notifies
+  // `onAddTexts` directly instead of buffering (notifyAddText sees `initialized`).
+  if (!lazy) {
+    ensureInitialized();
+  }
+
   return i18n;
 }
+
+/* ------------------------------------------------------------------ *
+ * Client detection + document-lang monitor
+ * ------------------------------------------------------------------ */
+
+/**
+ * "Client-side": We are in the browser or a fake testing browser.
+ */
+function isClientSide(): boolean {
+  const g = globalThis;
+  return !!g.window?.MutationObserver && !!g.document?.documentElement;
+}
+
+/**
+ * Construct the default locale source that watches `<html lang>`. It exposes
+ * `getPrimaryLocale` (reading the live attribute) and `onLocaleChange` (driven by a
+ * MutationObserver on the `lang` attribute), and becomes the global instance's config
+ * on the client.
+ */
+function createDocumentLangMonitor(): I18nConfig {
+  const g = globalThis;
+  let listeners: ChangeListener[] = [];
+
+  const observer = new g.MutationObserver(() => {
+    for (const listener of [...listeners] /* NOSONAR */) {
+      listener();
+    }
+  });
+
+  observer.observe(g.document.documentElement, {
+    attributes: true,
+    attributeFilter: ["lang"],
+  });
+
+  return {
+    getPrimaryLocale(): Locale {
+      return g.document.documentElement.getAttribute("lang") ?? "en-US";
+    },
+    onLocaleChange(listener: ChangeListener): Unsubscribe {
+      listeners.push(listener);
+      return () => {
+        listeners = listeners.filter((it) => it !== listener);
+      };
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Module-level global state
+ * ------------------------------------------------------------------ */
+
+let globalI18n: I18n | undefined;
+let globalI18nConfig: I18nConfig | undefined; // stashed by initI18n
+let globalDict: Dictionary | undefined;
+let initI18nCalled = false; // guards single-call
+let globalI18nInitialized = false; // guards "too late"
+
+/**
+ * Lazy config resolution for the global instance. Runs once, on the global instance's
+ * first use of any locale method. Resolves config (installing the document-lang monitor
+ * on the client when appropriate) and marks the global instance initialized, so a later
+ * `initI18n` correctly reports "too late".
+ */
+function resolveGlobalConfig(): I18nConfig {
+  let config: I18nConfig = globalI18nConfig ?? {};
+
+  if (isClientSide() && !config.getPrimaryLocale && !config.onLocaleChange) {
+    // Install the default <html lang> monitor as the locale source.
+    config = { ...config, ...createDocumentLangMonitor() };
+  }
+
+  globalI18nInitialized = true;
+  return config;
+}
+
+/* ------------------------------------------------------------------ *
+ * Public functions
+ * ------------------------------------------------------------------ */
 
 function createNamespace<T extends TextMap>(params: {
   key: string;
   group?: string | null;
 }): Namespace<T> {
-  const namespace: Namespace<T> = freeze({
+  const namespace: Namespace<T> = {
     key: params.key,
     group: params.group ?? null,
-    full: (texts: T) => freeze({ namespace, texts }),
-    partial: (texts: Partial<T>) => freeze({ namespace, texts }),
-  });
+    full(texts: T): NamespaceTexts<T> {
+      return Object.freeze({ namespace, texts }) as NamespaceTexts<T>;
+    },
+    partial(texts: Partial<T>): NamespaceTexts<T> {
+      return Object.freeze({ namespace, texts }) as NamespaceTexts<T>;
+    },
+  };
 
-  return namespace;
+  return Object.freeze(namespace);
+}
+
+function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
+  // Type-safe identity function: returns its argument unchanged.
+  return texts;
+}
+
+function createI18n(config: I18nConfig = {}): I18n {
+  const clonedConfig = { ...config }; // shallow-cloned, consulted on init
+  const dict: Dictionary = createRecord<LocaleRecord>();
+  // Non-global: eager init (lazy === false).
+  return createI18nInstance(dict, () => clonedConfig, false);
+}
+
+function getI18n(): I18n {
+  if (!globalI18n) {
+    globalDict = createRecord<LocaleRecord>();
+    // Global: lazy init (config arrives later via initI18n).
+    globalI18n = createI18nInstance(globalDict, resolveGlobalConfig, true);
+  }
+  return globalI18n;
+}
+
+function initI18n(config: I18nConfig): void {
+  // "already called" check takes precedence over "too late".
+  if (initI18nCalled) {
+    throw new Error("Function 'initI18n' can only be called once.");
+  }
+  if (globalI18nInitialized) {
+    throw new Error(
+      "Too late to call function 'initI18n' - i18n has already been initialized.",
+    );
+  }
+
+  globalI18nConfig = { ...config }; // shallow clone, consumed lazily by getI18n init
+  initI18nCalled = true;
 }
 
 function localize(
   host: LocalizeControllerHost,
   i18n: I18n = getI18n(),
-): DefaultLocalizeController {
-  return new DefaultLocalizeController(host, i18n);
-}
+): LocalizeController & Localizer {
+  // Resolved lazily, NOT at construction: merely creating a controller (e.g. in a class
+  // field initializer that runs before initI18n) must not force the bound instance to
+  // initialize. The locale is read on connect, or on first use before connection.
+  let activeLocale: Locale | null = null;
+  let unsubscribe: Unsubscribe | null = null;
 
-// For type safety and expressiveness.
-function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
-  return texts;
-}
+  // The controller's current locale: the value synced while connected, or the bound
+  // instance's primary locale resolved on first use before connection.
+  const currentLocale = (): Locale =>
+    activeLocale ?? (activeLocale = i18n.getPrimaryLocale());
 
-// === internal classes ========================================================
-
-class Dictionary {
-  readonly #data: Record<Locale, NamespaceTextMap> = createRecord();
-  readonly #getLocalizer: (locale: Locale) => Localizer;
-
-  constructor(getLocalizer: (locale: Locale) => Localizer) {
-    this.#getLocalizer = getLocalizer;
-  }
-
-  addTexts(...bundles: TextBundle[]): void {
-    for (const bundle of bundles) {
-      this.#applyTextBundle(this.#normalizeTextBundle(bundle));
-    }
-  }
-
-  getText<T extends TextMap, K extends keyof T>(
-    locale: Locale,
-    namespace: Namespace<T>,
-    key: K,
-    params: TextParams<T[K]>,
-  ): string;
-
-  getText<T extends TextMap, K extends keyof T>(
-    locale: Locale,
-    namespace: Namespace<T>,
-    key: SimpleTextKey<K, T[K]>,
-  ): string;
-
-  getText<T extends TextMap>(
-    locale: Locale,
-    namespace: Namespace<T>,
-    key: string,
-    params: Params = null,
-  ): string {
-    const requested = new Intl.Locale(locale);
-
-    for (const tag of this.#fallbackChain(requested)) {
-      const entry = this.#data[tag]?.[namespace.key]?.[key];
-
-      // Static translation: usable as-is.
-      if (typeof entry === "string") {
-        return entry;
-      }
-
-      // Dynamic translation: usable only when params were supplied. Without
-      // them we cannot invoke it, so we keep probing less specific locales and
-      // ultimately fall back to the raw key.
-      if (typeof entry === "function" && params !== null) {
-        return entry(params, this.#getLocalizer(tag));
-      }
-    }
-
-    return key;
-  }
-
-  // Locale tags to probe, ordered from most to least specific and de-duplicated
-  // while preserving that order:
-  //   1. the canonical tag             (e.g. "zh-Hant-TW")
-  //   2. the bare language             (e.g. "zh")
-  //   3. language + region             (e.g. "zh-TW")
-  // Step 3 only adds something new when the tag carries a script subtag.
-  #fallbackChain(locale: Intl.Locale): NamespaceKey[] {
-    const { language, region } = locale;
-
-    const ordered: (string | undefined)[] = [
-      locale.baseName,
-      language || undefined,
-      language && region ? `${language}-${region}` : undefined,
-    ];
-
-    const chain = new Set<string>();
-    for (const tag of ordered) {
-      if (tag) {
-        chain.add(normalizeLocale(tag));
-      }
-    }
-
-    return [...chain];
-  }
-
-  #normalizeTextBundle(texts: TextBundle): TextBundle {
-    const result: TextBundle = {};
-
-    for (const [locale, namespaceBundles] of Object.entries(texts)) {
-      const normalized = normalizeLocale(locale);
-      (result[normalized] ??= []).push(...namespaceBundles);
-    }
-
-    return result;
-  }
-
-  #applyTextBundle(texts: TextBundle): void {
-    for (const [locale, namespaceBundles] of Object.entries(texts)) {
-      const byNamespace = this.#getOrCreateLocale(locale);
-      for (const bundle of namespaceBundles) {
-        const target = (byNamespace[bundle.namespace.key] ??= createRecord());
-        Object.assign(target, bundle.texts); // Last write wins.
-      }
-    }
-  }
-
-  #getOrCreateLocale(locale: string): NamespaceTextMap {
-    return (this.#data[normalizeLocale(locale)] ??= createRecord());
-  }
-}
-
-class DefaultI18n implements I18n {
-  readonly #dict: Dictionary;
-  readonly #getConfig: () => I18nConfig;
-  readonly #localeListeners: ChangeListener[] = [];
-  readonly #localizerByLocale: Record<Locale, Localizer> = createRecord();
-  #config: I18nConfig | null = null;
-  #textsToAdd: TextBundle[] | null;
-
-  constructor(
-    dict: Dictionary,
-    getConfig: () => I18nConfig,
-    addTextsLazily = false,
-  ) {
-    this.#dict = dict;
-    this.#getConfig = getConfig;
-    this.#textsToAdd = addTextsLazily ? [] : null;
-    dictByI18n.set(this, dict);
-  }
-
-  addTexts(...bundles: TextBundle[]): void {
-    this.#dict.addTexts(...bundles);
-  }
-
-  locale(locale: Locale): Localizer {
-    this.#init();
-    return (this.#localizerByLocale[locale] ??= new DefaultLocalizer(
-      this,
-      this.#dict,
-      () => locale,
-    ));
-  }
-
-  getPrimaryLocale(): Locale {
-    return "en-US";
-  }
-
-  getFallbackLocales(): Locale[] {
-    return [];
-  }
-
-  onLocaleChange(listener: ChangeListener): Unsubscribe {
-    this.#localeListeners.push(listener);
-    return () => {};
-  }
-
-  #init(): void {
-    if (this === globalState.instance) {
-      globalState.initialized = true;
-    }
-
-    if (this.#config) {
-      return;
-    }
-
-    this.#config = this.#getConfig() ?? {};
-
-    if (this.#textsToAdd) {
-      const pending = this.#textsToAdd;
-      this.#textsToAdd = null;
-      for (const texts of pending) {
-        this.addTexts(texts);
-      }
-    }
-  }
-}
-
-class DefaultLocalizer implements Localizer {
-  readonly #i18n: I18n;
-  readonly #dict: Dictionary;
-  readonly #getLocale: () => Locale;
-
-  constructor(i18n: I18n, dict: Dictionary, getLocale: () => Locale) {
-    this.#i18n = i18n;
-    this.#dict = dict;
-    this.#getLocale = getLocale;
-  }
-
-  getText<T extends TextMap, K extends keyof T & string>(
-    namespace: Namespace<T>,
-    key: K,
-    params: TextParams<T[K]>,
-  ): string;
-
-  getText<T extends TextMap, K extends keyof T & string>(
-    namespace: Namespace<T>,
-    key: SimpleTextKey<K, T[K]>,
-  ): string;
-
-  getText(
-    namespace: Namespace<any>,
-    key: string,
-    params: Params = null,
-  ): string {
-    return params
-      ? this.#dict.getText(this.#getLocale(), namespace, key, params)
-      : this.#dict.getText(this.#getLocale(), namespace, key as any);
-  }
-
-  formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-    return new Intl.NumberFormat(this.#getLocale(), options).format(value);
-  }
-
-  numberFormat(options?: Intl.NumberFormatOptions): Intl.NumberFormat {
-    return new Intl.NumberFormat(this.#getLocale(), options);
-  }
-
-  formatDateTime(value: Date, options?: Intl.DateTimeFormatOptions): string {
-    return new Intl.DateTimeFormat(this.#getLocale(), options).format(value);
-  }
-
-  dateTimeFormat(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-    return new Intl.DateTimeFormat(this.#getLocale(), options);
-  }
-
-  locale(locale: Locale): Localizer {
-    return this.#i18n.locale(locale);
-  }
-}
-
-class DocumentLocaleMonitor {
-  readonly #document: Document;
-  readonly #defaultLocale: Locale | null;
-  readonly #listeners = new Set<ChangeListener>();
-  #locale: Locale | null;
-  #mutationObserver: MutationObserver | null = null;
-
-  constructor(document: Document, defaultLocale: Locale | null = null) {
-    this.#document = document;
-    this.#defaultLocale = defaultLocale;
-    this.#locale =
-      document.documentElement.getAttribute("lang") || defaultLocale;
-  }
-
-  getLocale(): Locale | null {
-    return this.#locale;
-  }
-
-  onChange(listener: ChangeListener): Unsubscribe {
-    this.#listeners.add(listener);
-    this.#activate();
-
-    return () => {
-      this.#listeners.delete(listener);
-      if (this.#listeners.size === 0) {
-        this.#deactivate();
-      }
-    };
-  }
-
-  #updateLocaleInfo(): void {
-    const nextLocale =
-      this.#document.documentElement.getAttribute("lang") ||
-      this.#defaultLocale;
-
-    if (nextLocale === this.#locale) {
-      return;
-    }
-
-    this.#locale = nextLocale;
-
-    for (const listener of this.#listeners) {
-      listener();
-    }
-  }
-
-  #activate(): void {
-    if (this.#mutationObserver) {
-      return;
-    }
-
-    this.#updateLocaleInfo();
-
-    this.#mutationObserver = new MutationObserver(() =>
-      this.#updateLocaleInfo(),
+  // Route reads through the bound instance's `locale()` so text resolves against the
+  // bound instance's dictionary, at the controller's current active locale.
+  const getText: GetTextImpl = (namespace, key, params = null) =>
+    (i18n.locale(currentLocale()).getText as GetTextImpl)(
+      namespace,
+      key,
+      params,
     );
-    this.#mutationObserver.observe(this.#document.documentElement, {
-      attributes: true,
-      attributeFilter: ["lang"],
-    });
-  }
 
-  #deactivate(): void {
-    this.#mutationObserver?.disconnect();
-    this.#mutationObserver = null;
-  }
+  const controller = {
+    host,
+
+    hostConnected(): void {
+      unsubscribe = i18n.onLocaleChange(() => {
+        activeLocale = i18n.getPrimaryLocale();
+        host.requestUpdate();
+      });
+      // One immediate sync: exactly one requestUpdate on connect.
+      activeLocale = i18n.getPrimaryLocale();
+      host.requestUpdate();
+    },
+
+    hostDisconnected(): void {
+      // No-op if never connected (or disconnected twice).
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    },
+
+    getText,
+    formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
+      return i18n.locale(currentLocale()).formatNumber(value, options);
+    },
+    numberFormat(options?: Intl.NumberFormatOptions): Intl.NumberFormat {
+      return i18n.locale(currentLocale()).numberFormat(options);
+    },
+    formatDateTime(value: Date, options?: Intl.DateTimeFormatOptions): string {
+      return i18n.locale(currentLocale()).formatDateTime(value, options);
+    },
+    dateTimeFormat(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+      return i18n.locale(currentLocale()).dateTimeFormat(options);
+    },
+    locale(tag: Locale): Localizer {
+      return i18n.locale(tag);
+    },
+  };
+
+  host.addController(controller);
+  return controller as LocalizeController & Localizer;
 }
-
-class DefaultLocalizeController
-  extends DefaultLocalizer
-  implements LocalizeController
-{
-  readonly #host: LocalizeControllerHost;
-  readonly #i18n: I18n;
-  #locale: Locale;
-  #unsubscribe: Unsubscribe | null = null;
-
-  constructor(host: LocalizeControllerHost, i18n: I18n) {
-    super(i18n, dictByI18n.get(i18n) ?? globalDict, () => this.#locale);
-    this.#i18n = i18n;
-    this.#locale = i18n.getPrimaryLocale();
-    this.#host = host;
-    host.addController(this);
-  }
-
-  hostConnected(): void {
-    const i18n = this.#i18n;
-
-    const syncLocale = () => {
-      this.#locale = i18n.getPrimaryLocale();
-      this.#host.requestUpdate();
-    };
-
-    this.#unsubscribe = i18n.onLocaleChange(syncLocale);
-    syncLocale();
-  }
-
-  hostDisconnected(): void {
-    const unsubscribe = this.#unsubscribe;
-    if (unsubscribe) {
-      this.#unsubscribe = null;
-      unsubscribe();
-    }
-  }
-}
-
-// === global instance state ===================================================
-
-// Mutable singleton state for the global instance and its one-shot setup.
-const globalState = {
-  instance: null as I18n | null, // created lazily by `getI18n`
-  config: null as I18nConfig | null, // stashed by `initI18n`, consumed by `getI18n`
-  initCalled: false, // `initI18n` may run at most once
-  initialized: false, // set once the instance has resolved its config
-};
-
-// The dictionary backing the global instance. Its localizer factory is
-// late-bound because the instance itself is created lazily (see `getI18n`).
-const globalDict = new Dictionary((locale) =>
-  globalState.instance!.locale(locale),
-);
-
-// Associates each I18n instance with its own dictionary, so a localize
-// controller bound to a specific instance resolves texts against the right one.
-const dictByI18n = new WeakMap<I18n, Dictionary>();
