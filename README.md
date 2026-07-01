@@ -5,12 +5,12 @@ A lightweight, **type-safe** internationalization library for TypeScript. Transl
 The whole library is a single module that exports six functions and a handful of types.
 
 ```ts
-const l = getI18n().locale("de");
+const loc = getI18n().locale("de");
 
-l.getText(common, "greeting"); // "Hallo"   — static, no params
-l.getText(common, "itemCount", { count: 1000 }); // "1.000 Artikel" — dynamic, typed params
-l.getText(common, "greeting", { count: 1 }); // ✗ compile error: this key takes no params
-l.getText(common, "itemCount"); // ✗ compile error: this key requires params
+loc.getText(common, "greeting"); // "Hallo"   — static, no params
+loc.getText(common, "itemCount", { count: 1000 }); // "1.000 Artikel" — dynamic, typed params
+loc.getText(common, "greeting", { count: 1 }); // ✗ compile error: this key takes no params
+loc.getText(common, "itemCount"); // ✗ compile error: this key requires params
 ```
 
 ---
@@ -81,13 +81,7 @@ js-lingo is a single module. The examples below import from `js-lingo`; if you v
 ## Quick start
 
 ```ts
-import {
-  bundleTexts,
-  createNamespace,
-  getI18n,
-  initI18n,
-  type Translation,
-} from "js-lingo";
+import { bundleTexts, createNamespace, getI18n, initI18n, type Translation } from "js-lingo";
 
 // 1. Declare a typed namespace.
 const common = createNamespace<{
@@ -186,7 +180,7 @@ ns.full({
 });
 ```
 
-> The second parameter is typed as js-lingo's internal `Localizer`, which is not exported. You never need to name it — let TypeScript infer it, as in `({ name }, lz) => …`. This is also why dynamic translations must be declared with `Translation<T>` rather than a hand-written function type.
+> The second parameter is typed as js-lingo's `Localizer`. You never need to name it — let TypeScript infer it, as in `({ name }, lz) => …`. This is also why dynamic translations must be declared with `Translation<T>` rather than a hand-written function type.
 
 ### Text bundles
 
@@ -489,7 +483,7 @@ createI18n({
 - **Server-side, the singleton is shared.** On a server, prefer a per-request `createI18n` instance over the global one to avoid leaking a locale between requests.
 - **The resolution chain is rebuilt per `getText` call.** This is inexpensive for normal use; if you resolve keys in a tight hot loop, cache the `Localizer` and consider memoizing.
 - **The config locale-change subscription is established once and not torn down.** Instances are expected to be long-lived (a singleton or a per-request object), so this is intentional rather than a leak.
-- **`Localizer` is internal.** Author dynamic translations with `Translation<T>` and let the second parameter's type be inferred.
+- **`Localizer`** Author dynamic translations with `Translation<T>` and let the second parameter's type be inferred.
 
 ---
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Single-file unit-test suite for the i18n library.
+// Single-file unit-test suite for the js-lingo library (./index.ts).
 //
 // Runner: vitest, jsdom environment (for the <html lang> monitor + MutationObserver).
 //   npm i -D vitest jsdom @vitest/coverage-v8
@@ -11,15 +11,14 @@
 // stay independent and order-free.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { bundleTexts, createI18n, createNamespace, localize } from "./index.js";
-import type { Translation } from "./index.js";
+import { bundleTexts, createI18n, createNamespace, localize, type Translation } from "./index";
 
-type Mod = typeof import("./index.js");
+type Mod = typeof import("./index");
 
 /** Re-evaluate the module so module-level globals reset between tests that need it. */
 async function freshModule(): Promise<Mod> {
   vi.resetModules();
-  return import("./index.js");
+  return import("./index");
 }
 
 /** A minimal Lit-like host that records requestUpdate() calls. */
@@ -146,10 +145,7 @@ describe("createI18n / resolution", () => {
       de: [greet.partial({ count: (p) => `de-${p.n}` })],
       en: [greet.partial({ count: ((..._a: any[]) => "en-static") as any })],
     });
-    const getAny = i.locale("de").getText as unknown as (
-      ns: any,
-      key: any,
-    ) => string;
+    const getAny = i.locale("de").getText as unknown as (ns: any, key: any) => string;
     // de's value is a function but no params -> skip; en's value is also a function
     // without params -> skip; nothing usable -> key.
     expect(getAny(greet, "count")).toBe("count");
@@ -283,10 +279,7 @@ describe("addTexts merging", () => {
 
   it("applies multiple bundles (variadic) and last write wins", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
-    i.addTexts(
-      { de: [a.partial({ x: "first" })] },
-      { de: [a.partial({ x: "second" })] },
-    );
+    i.addTexts({ de: [a.partial({ x: "first" })] }, { de: [a.partial({ x: "second" })] });
     expect(i.locale("de").getText(a, "x")).toBe("second");
   });
 
@@ -303,9 +296,7 @@ describe("addTexts merging", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     // "en_US_invalid" makes `new Intl.Locale` throw; normalizeLocale's catch returns
     // the raw key, so the bundle is stored under it without aborting addTexts.
-    expect(() =>
-      i.addTexts({ en_US_invalid: [a.partial({ x: "X" })] }),
-    ).not.toThrow();
+    expect(() => i.addTexts({ en_US_invalid: [a.partial({ x: "X" })] })).not.toThrow();
     // A normal lookup is unaffected.
     expect(i.locale("de").getText(a, "x")).toBe("x");
   });
@@ -332,7 +323,7 @@ describe("onAddTexts notifications", () => {
     const events: string[] = [];
     const i = createI18n({
       getPrimaryLocale: () => "de",
-      onAddTexts: (loc, n, key) => events.push(`${loc}/${key}`),
+      onAddTexts: (loc, _n, key) => events.push(`${loc}/${key}`),
     });
     i.addTexts({ de: [ns.partial({ a: "A1" })] });
     i.addTexts({ de: [ns.partial({ a: "A2" })] });
@@ -394,9 +385,7 @@ describe("Localizer formatting", () => {
 
   it("formatDateTime returns a string and dateTimeFormat an Intl.DateTimeFormat", () => {
     const d = new Date(Date.UTC(2020, 0, 2, 3, 4, 5));
-    const s = i
-      .locale("en-US")
-      .formatDateTime(d, { timeZone: "UTC", year: "numeric" });
+    const s = i.locale("en-US").formatDateTime(d, { timeZone: "UTC", year: "numeric" });
     expect(typeof s).toBe("string");
     expect(s).toContain("2020");
     const dtf = i.locale("en-US").dateTimeFormat({ timeZone: "UTC" });
@@ -421,9 +410,7 @@ describe("Localizer formatting", () => {
 
 describe("instance config accessors", () => {
   it("getPrimaryLocale returns config value, or defaults to en-US", () => {
-    expect(
-      createI18n({ getPrimaryLocale: () => "fr" }).getPrimaryLocale(),
-    ).toBe("fr");
+    expect(createI18n({ getPrimaryLocale: () => "fr" }).getPrimaryLocale()).toBe("fr");
     expect(createI18n({}).getPrimaryLocale()).toBe("en-US");
   });
 
@@ -486,10 +473,7 @@ describe("getI18n / initI18n", () => {
 
   it("initI18n config is consumed by the global instance", async () => {
     const m = await freshModule();
-    m.initI18n({
-      getPrimaryLocale: () => "fr",
-      getFallbackLocales: () => ["en"],
-    });
+    m.initI18n({ getPrimaryLocale: () => "fr", getFallbackLocales: () => ["en"] });
     expect(m.getI18n().getPrimaryLocale()).toBe("fr");
     expect(m.getI18n().getFallbackLocales()).toEqual(["en"]);
   });
@@ -497,26 +481,20 @@ describe("getI18n / initI18n", () => {
   it("throws 'only be called once' on a second initI18n", async () => {
     const m = await freshModule();
     m.initI18n({ getPrimaryLocale: () => "de" });
-    expect(() => m.initI18n({ getPrimaryLocale: () => "en" })).toThrow(
-      /only be called once/,
-    );
+    expect(() => m.initI18n({ getPrimaryLocale: () => "en" })).toThrow(/only be called once/);
   });
 
   it("throws 'Too late' when init happens after the global instance initialized", async () => {
     const m = await freshModule();
     m.getI18n().getPrimaryLocale(); // forces global init
-    expect(() => m.initI18n({ getPrimaryLocale: () => "de" })).toThrow(
-      /Too late/,
-    );
+    expect(() => m.initI18n({ getPrimaryLocale: () => "de" })).toThrow(/Too late/);
   });
 
   it("'only be called once' takes precedence over 'Too late'", async () => {
     const m = await freshModule();
     m.initI18n({ getPrimaryLocale: () => "de" }); // sets initI18nCalled
     m.getI18n().getPrimaryLocale(); // sets globalI18nInitialized
-    expect(() => m.initI18n({ getPrimaryLocale: () => "en" })).toThrow(
-      /only be called once/,
-    );
+    expect(() => m.initI18n({ getPrimaryLocale: () => "en" })).toThrow(/only be called once/);
   });
 
   it("addTexts before initI18n is remembered and resolves after init", async () => {
@@ -673,9 +651,7 @@ describe("localize controller", () => {
     const c = localize(makeHost(), i);
     expect(c.formatNumber(1000)).toBe("1,000");
     expect(c.numberFormat()).toBeInstanceOf(Intl.NumberFormat);
-    expect(typeof c.formatDateTime(new Date(0), { timeZone: "UTC" })).toBe(
-      "string",
-    );
+    expect(typeof c.formatDateTime(new Date(0), { timeZone: "UTC" })).toBe("string");
     expect(c.dateTimeFormat()).toBeInstanceOf(Intl.DateTimeFormat);
     expect(c.locale("de-DE").formatNumber(1000)).toBe("1.000");
   });
@@ -687,5 +663,174 @@ describe("localize controller", () => {
     m.getI18n().addTexts({ de: [lns.partial({ hi: "Hallo" })] });
     const c = m.localize(makeHost());
     expect(c.getText(lns, "hi")).toBe("Hallo");
+  });
+});
+
+/* ================================================================= *
+ * config.getText customization middleware
+ * ================================================================= */
+
+// A tiny i18next-like store: store[lng][ns][key].
+const ext = {
+  store: {
+    en: { common: { greeting: "Hello (ext)" } },
+  } as Record<string, Record<string, Record<string, string>>>,
+  exists(lng: string, ns: string, key: string) {
+    return this.store[lng]?.[ns]?.[key] !== undefined;
+  },
+  t(lng: string, ns: string, key: string, params?: Record<string, unknown>) {
+    let s = this.store[lng]?.[ns]?.[key] ?? key;
+    for (const [k, v] of Object.entries(params ?? {})) s = s.replace(`{{${k}}}`, String(v));
+    return s;
+  },
+};
+
+const common = createNamespace<{ greeting: Translation; bye: Translation }>({
+  key: "common-ns",
+  group: "common", // maps to the external namespace
+});
+
+describe("config.getText middleware (next delegate)", () => {
+  it("external-first: resolves via the store, mapping namespace.group -> external ns", () => {
+    const i = createI18n({
+      getPrimaryLocale: () => "en",
+      getText: (locale, ns, key, params, next) => {
+        const g = ns.group ?? "translation";
+        return ext.exists(locale, g, key) ? ext.t(locale, g, key, params as any) : next();
+      },
+    });
+    i.addTexts({ en: [common.partial({ bye: "Bye (built-in)" })] });
+    expect(i.locale("en").getText(common, "greeting")).toBe("Hello (ext)"); // from store
+    expect(i.locale("en").getText(common, "bye")).toBe("Bye (built-in)"); // via next()
+  });
+
+  it("passes locale, group, key, params, and a next() thunk into the hook", () => {
+    const spy = vi.fn((_l, _ns, _k, _p, next) => next());
+    const i = createI18n({ getPrimaryLocale: () => "en", getText: spy });
+    i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
+    i.locale("en").getText(common, "greeting");
+    const call = spy.mock.calls[0];
+    expect(call[0]).toBe("en");
+    expect(call[1].group).toBe("common");
+    expect(call[2]).toBe("greeting");
+    expect(typeof call[4]).toBe("function");
+  });
+
+  it("built-in-first: only overrides on a miss (next() returned the key)", () => {
+    const i = createI18n({
+      getPrimaryLocale: () => "en",
+      getText: (_locale, ns, key, _params, next) => {
+        const builtin = next();
+        if (builtin !== key) return builtin; // built-in had it
+        return `⟪missing: ${ns.group}.${key}⟫`; // else our own placeholder
+      },
+    });
+    i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
+    expect(i.locale("en").getText(common, "greeting")).toBe("Hi");
+    expect(i.locale("en").getText(common, "bye")).toBe("⟪missing: common.bye⟫");
+  });
+
+  it("wraps/transforms the built-in result", () => {
+    const i = createI18n({
+      getPrimaryLocale: () => "en",
+      getText: (_l, _ns, _k, _p, next) => next().toUpperCase(),
+    });
+    i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
+    expect(i.locale("en").getText(common, "greeting")).toBe("HI");
+  });
+
+  it("delegating with next() equals the un-hooked behavior, including miss -> key", () => {
+    const passthrough = createI18n({
+      getPrimaryLocale: () => "en",
+      getText: (_l, _ns, _k, _p, next) => next(),
+    });
+    const plain = createI18n({ getPrimaryLocale: () => "en" });
+    for (const inst of [passthrough, plain]) inst.addTexts({ en: [common.partial({ greeting: "Hi" })] });
+    expect(passthrough.locale("en").getText(common, "greeting")).toBe("Hi");
+    expect(passthrough.locale("en").getText(common, "bye")).toBe("bye"); // same miss->key as plain
+    expect(plain.locale("en").getText(common, "bye")).toBe("bye");
+  });
+
+  it("forwards params for external interpolation", () => {
+    const dyn = createNamespace<{ hi: Translation<{ name: string }> }>({ key: "d", group: "g" });
+    ext.store.en ??= {};
+    ext.store.en.g = { hi: "Hi {{name}}" };
+    const i = createI18n({
+      getPrimaryLocale: () => "en",
+      getText: (locale, ns, key, params) => ext.t(locale, ns.group ?? "translation", key, params as any),
+    });
+    expect(i.locale("en").getText(dyn, "hi", { name: "Mara" })).toBe("Hi Mara");
+  });
+});
+
+/* ================================================================= *
+ * Localizer.bindTexts()
+ * ================================================================= */
+
+const dialog = createNamespace<{
+  title: Translation;
+  hi: Translation<{ name: string }>;
+}>({ key: "dialog" });
+
+const other = createNamespace<{ ok: Translation }>({ key: "other" });
+
+function setup() {
+  const i = createI18n({ getPrimaryLocale: () => "en" });
+  i.addTexts({
+    en: [dialog.full({ title: "Title", hi: ({ name }) => `Hi ${name}` }), other.full({ ok: "OK" })],
+  });
+  return i.locale("en");
+}
+
+describe("Localizer.bindTexts()", () => {
+  it("bindTexts() equals unbound getText", () => {
+    const l = setup();
+    const t = l.bindTexts();
+    expect(t(dialog, "title")).toBe("Title");
+    expect(t(dialog, "hi", { name: "Ada" })).toBe("Hi Ada");
+    expect(t(other, "ok")).toBe("OK");
+  });
+
+  it("bindTexts(ns) is scoped: t(key[, params]) uses the bound namespace", () => {
+    const l = setup();
+    const t = l.bindTexts(dialog);
+    expect(t("title")).toBe("Title");
+    expect(t("hi", { name: "Mara" })).toBe("Hi Mara");
+  });
+
+  it("bindTexts(ns) still accepts an explicit namespace as first arg", () => {
+    const l = setup();
+    const t = l.bindTexts(dialog);
+    expect(t(other, "ok")).toBe("OK"); // explicit namespace form
+    expect(t(dialog, "title")).toBe("Title"); // explicit form for the bound ns too
+  });
+
+  it("scoped function reflects the localizer's locale", () => {
+    const i = createI18n({ getPrimaryLocale: () => "de" });
+    i.addTexts({ de: [dialog.partial({ title: "Titel" })], en: [dialog.partial({ title: "Title" })] });
+    expect(i.locale("de").bindTexts(dialog)("title")).toBe("Titel");
+    expect(i.locale("en").bindTexts(dialog)("title")).toBe("Title");
+  });
+
+  it("controller.bindTexts() is reactive: re-binding per call tracks the active locale", () => {
+    let loc = "de";
+    let fire: (() => void) | undefined;
+    const i = createI18n({
+      getPrimaryLocale: () => loc,
+      onLocaleChange: (cb) => {
+        fire = cb;
+        return () => {
+          fire = undefined;
+        };
+      },
+    });
+    i.addTexts({ de: [dialog.partial({ title: "Titel" })], en: [dialog.partial({ title: "Title" })] });
+    const host = { requestUpdate() {}, addController() {} };
+    const c = localize(host, i);
+    c.hostConnected();
+    expect(c.bindTexts(dialog)("title")).toBe("Titel");
+    loc = "en";
+    fire?.();
+    expect(c.bindTexts(dialog)("title")).toBe("Title"); // fresh bindTexts() picks up new locale
   });
 });

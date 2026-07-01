@@ -8,8 +8,12 @@
   ],
   "scripts": {
     "build": "vite build",
-    "test": "vitest",
-    "test:run": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "loc": "sloc src/index.ts",
+    "loc:src": "sloc . --exclude 'node_modules|coverage|dist|\\.test\\.'",
+    "loc:json": "sloc src/index.ts --format json"
   },
   "repository": {
     "type": "git",
@@ -28,6 +32,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
+    "sloc": "^0.3.2",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "vite-plugin-dts": "^5.0.2",
