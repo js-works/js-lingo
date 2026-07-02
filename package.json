@@ -1,13 +1,28 @@
 {
   "name": "js-lingo",
   "version": "0.0.1",
-  "description": "",
-  "main": "index.js",
+  "description": "A small I18n library",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.es",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.es.d.ts",
+         "default": "./dist/index.es"  
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "vite build",
+    "postbuild": "node scripts/pack-source.mts",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
@@ -21,21 +36,22 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/js-works/js-lingo/issues"
   },
   "homepage": "https://github.com/js-works/js-lingo#readme",
   "devDependencies": {
-    "@types/node": "^26.0.0",
-    "@vitest/coverage-v8": "^4.1.9",
-    "esbuild": "^0.28.1",
-    "jsdom": "^29.1.1",
-    "sloc": "^0.3.2",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.16",
-    "vite-plugin-dts": "^5.0.2",
-    "vitest": "^4.1.9"
+    "@types/archiver": "7.0.0",
+    "@types/node": "26.0.0",
+    "@vitest/coverage-v8": "4.1.9",
+    "archiver": "7.0.1",
+    "esbuild": "0.28.1",
+    "jsdom": "29.1.1",
+    "sloc": "0.3.2",
+    "typescript": "6.0.3",
+    "vite": "8.0.16",
+    "vite-plugin-dts": "5.0.2",
+    "vitest": "4.1.9"
   }
 }
