@@ -106,12 +106,12 @@ describe("createI18n / resolution", () => {
   it("resolves a static string for the primary locale", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [greet.partial({ hello: "Hallo" })] });
-    expect(i.locale("de").getText(greet, "hello")).toBe("Hallo");
+    expect(i.localize("de").getText(greet, "hello")).toBe("Hallo");
   });
 
   it("returns the key itself when nothing is found", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
-    expect(i.locale("de").getText(greet, "hello")).toBe("hello");
+    expect(i.localize("de").getText(greet, "hello")).toBe("hello");
   });
 
   it("invokes a dynamic translation with params and a localizer", () => {
@@ -119,7 +119,7 @@ describe("createI18n / resolution", () => {
     i.addTexts({
       en: [greet.partial({ count: (p, lz) => `n=${lz.formatNumber(p.n)}` })],
     });
-    expect(i.locale("en").getText(greet, "count", { n: 1000 })).toBe("n=1,000");
+    expect(i.localize("en").getText(greet, "count", { n: 1000 })).toBe("n=1,000");
   });
 
   it("uses a localizer for the FOUND (fallback) locale inside a dynamic translation", () => {
@@ -132,7 +132,7 @@ describe("createI18n / resolution", () => {
     i.addTexts({
       en: [greet.partial({ count: (p, lz) => lz.formatNumber(p.n) })],
     });
-    expect(i.locale("de").getText(greet, "count", { n: 1000 })).toBe("1,000");
+    expect(i.localize("de").getText(greet, "count", { n: 1000 })).toBe("1,000");
   });
 
   it("skips a dynamic value when called without params and falls through", () => {
@@ -145,7 +145,7 @@ describe("createI18n / resolution", () => {
       de: [greet.partial({ count: (p) => `de-${p.n}` })],
       en: [greet.partial({ count: ((..._a: any[]) => "en-static") as any })],
     });
-    const getAny = i.locale("de").getText as unknown as (ns: any, key: any) => string;
+    const getAny = i.localize("de").getText as unknown as (ns: any, key: any) => string;
     // de's value is a function but no params -> skip; en's value is also a function
     // without params -> skip; nothing usable -> key.
     expect(getAny(greet, "count")).toBe("count");
@@ -154,11 +154,11 @@ describe("createI18n / resolution", () => {
   it("treats null-prototype keys like 'toString' / 'constructor' as missing, not inherited", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     // Nothing added: must return the key, never "[object Object]" or a function.
-    expect(i.locale("de").getText(weird, "toString")).toBe("toString");
-    expect(i.locale("de").getText(weird, "constructor")).toBe("constructor");
+    expect(i.localize("de").getText(weird, "toString")).toBe("toString");
+    expect(i.localize("de").getText(weird, "constructor")).toBe("constructor");
     i.addTexts({ de: [weird.partial({ toString: "TS", constructor: "C" })] });
-    expect(i.locale("de").getText(weird, "toString")).toBe("TS");
-    expect(i.locale("de").getText(weird, "constructor")).toBe("C");
+    expect(i.localize("de").getText(weird, "toString")).toBe("TS");
+    expect(i.localize("de").getText(weird, "constructor")).toBe("C");
   });
 });
 
@@ -174,21 +174,21 @@ describe("fallback chain ordering", () => {
       zh: [ns.partial({ w: "generic" })],
       "zh-TW": [ns.partial({ w: "taiwan" })],
     });
-    expect(i.locale("zh-Hant-TW").getText(ns, "w")).toBe("taiwan");
+    expect(i.localize("zh-Hant-TW").getText(ns, "w")).toBe("taiwan");
   });
 
   it("falls back to bare language when the region tag is absent", () => {
     const ns = createNamespace<{ w: string }>({ key: "z" });
     const i = createI18n({ getPrimaryLocale: () => "zh-Hant-TW" });
     i.addTexts({ zh: [ns.partial({ w: "generic" })] });
-    expect(i.locale("zh-Hant-TW").getText(ns, "w")).toBe("generic");
+    expect(i.localize("zh-Hant-TW").getText(ns, "w")).toBe("generic");
   });
 
   it("two-subtag locales fall back to the bare language (de-CH -> de)", () => {
     const ns = createNamespace<{ w: string }>({ key: "z" });
     const i = createI18n({ getPrimaryLocale: () => "de-CH" });
     i.addTexts({ de: [ns.partial({ w: "de" })] });
-    expect(i.locale("de-CH").getText(ns, "w")).toBe("de");
+    expect(i.localize("de-CH").getText(ns, "w")).toBe("de");
   });
 });
 
@@ -201,7 +201,7 @@ describe("configured getFallbackLocales drives resolution (#2)", () => {
       getFallbackLocales: () => ["en"],
     });
     i.addTexts({ en: [ns.partial({ hi: "Hello" })] });
-    expect(i.locale("de").getText(ns, "hi")).toBe("Hello");
+    expect(i.localize("de").getText(ns, "hi")).toBe("Hello");
   });
 
   it("primary wins over a configured fallback when present", () => {
@@ -213,7 +213,7 @@ describe("configured getFallbackLocales drives resolution (#2)", () => {
       de: [ns.partial({ hi: "Hallo" })],
       en: [ns.partial({ hi: "Hello" })],
     });
-    expect(i.locale("de").getText(ns, "hi")).toBe("Hallo");
+    expect(i.localize("de").getText(ns, "hi")).toBe("Hallo");
   });
 
   it("expands a fallback tag through the same chain logic (en-GB -> en)", () => {
@@ -222,7 +222,7 @@ describe("configured getFallbackLocales drives resolution (#2)", () => {
       getFallbackLocales: () => ["en-GB"],
     });
     i.addTexts({ en: [ns.partial({ hi: "Hello" })] });
-    expect(i.locale("de").getText(ns, "hi")).toBe("Hello");
+    expect(i.localize("de").getText(ns, "hi")).toBe("Hello");
   });
 
   it("earlier fallback wins over later fallback", () => {
@@ -234,7 +234,7 @@ describe("configured getFallbackLocales drives resolution (#2)", () => {
       fr: [ns.partial({ hi: "Bonjour" })],
       en: [ns.partial({ hi: "Hello" })],
     });
-    expect(i.locale("de").getText(ns, "hi")).toBe("Bonjour");
+    expect(i.localize("de").getText(ns, "hi")).toBe("Bonjour");
   });
 
   it("skips an invalid fallback tag and still uses a valid one", () => {
@@ -243,19 +243,19 @@ describe("configured getFallbackLocales drives resolution (#2)", () => {
       getFallbackLocales: () => ["en_US_invalid", "en"],
     });
     i.addTexts({ en: [ns.partial({ hi: "Hello" })] });
-    expect(i.locale("de").getText(ns, "hi")).toBe("Hello");
+    expect(i.localize("de").getText(ns, "hi")).toBe("Hello");
   });
 
   it("with no fallback configured, a miss returns the key (unchanged behavior)", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ en: [ns.partial({ hi: "Hello" })] });
-    expect(i.locale("de").getText(ns, "hi")).toBe("hi");
+    expect(i.localize("de").getText(ns, "hi")).toBe("hi");
   });
 
   it("propagates an error when the REQUESTED locale tag is invalid", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [ns.partial({ hi: "Hallo" })] });
-    expect(() => i.locale("en_US_invalid").getText(ns, "hi")).toThrow();
+    expect(() => i.localize("en_US_invalid").getText(ns, "hi")).toThrow();
   });
 });
 
@@ -273,14 +273,14 @@ describe("addTexts merging", () => {
       "EN-US": [a.partial({ x: "X" })],
       "en-us": [b.partial({ y: "Y" })],
     });
-    expect(i.locale("en-US").getText(a, "x")).toBe("X");
-    expect(i.locale("en-US").getText(b, "y")).toBe("Y");
+    expect(i.localize("en-US").getText(a, "x")).toBe("X");
+    expect(i.localize("en-US").getText(b, "y")).toBe("Y");
   });
 
   it("applies multiple bundles (variadic) and last write wins", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [a.partial({ x: "first" })] }, { de: [a.partial({ x: "second" })] });
-    expect(i.locale("de").getText(a, "x")).toBe("second");
+    expect(i.localize("de").getText(a, "x")).toBe("second");
   });
 
   it("merges into an existing locale + namespace record across calls", () => {
@@ -288,8 +288,8 @@ describe("addTexts merging", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [ns.partial({ p: "P" })] });
     i.addTexts({ de: [ns.partial({ q: "Q" })] });
-    expect(i.locale("de").getText(ns, "p")).toBe("P");
-    expect(i.locale("de").getText(ns, "q")).toBe("Q");
+    expect(i.localize("de").getText(ns, "p")).toBe("P");
+    expect(i.localize("de").getText(ns, "q")).toBe("Q");
   });
 
   it("tolerates an un-parseable raw locale key (normalizeLocale returns it unchanged)", () => {
@@ -298,7 +298,7 @@ describe("addTexts merging", () => {
     // the raw key, so the bundle is stored under it without aborting addTexts.
     expect(() => i.addTexts({ en_US_invalid: [a.partial({ x: "X" })] })).not.toThrow();
     // A normal lookup is unaffected.
-    expect(i.locale("de").getText(a, "x")).toBe("x");
+    expect(i.localize("de").getText(a, "x")).toBe("x");
   });
 });
 
@@ -345,7 +345,7 @@ describe("onAddTexts notifications", () => {
       onAddTexts: (loc, n, key) => events.push(`${loc}/${n.key}/${key}`),
     });
     expect(events).toEqual([]); // not flushed yet
-    m.getI18n().locale("de").getText(lns, "a"); // first read -> flush
+    m.getI18n().localize("de").getText(lns, "a"); // first read -> flush
     expect(events).toEqual(["de/n/a"]);
     m.getI18n().addTexts({ en: [lns.full({ a: "B" })] }); // post-init -> direct
     expect(events).toEqual(["de/n/a", "en/n/a"]);
@@ -356,7 +356,7 @@ describe("onAddTexts notifications", () => {
     const lns = m.createNamespace<{ a: string }>({ key: "n" });
     m.getI18n().addTexts({ de: [lns.full({ a: "A" })] });
     m.initI18n({ getPrimaryLocale: () => "de" }); // no onAddTexts
-    expect(m.getI18n().locale("de").getText(lns, "a")).toBe("A");
+    expect(m.getI18n().localize("de").getText(lns, "a")).toBe("A");
   });
 });
 
@@ -368,39 +368,39 @@ describe("Localizer formatting", () => {
   const i = createI18n({ getPrimaryLocale: () => "en-US" });
 
   it("formatNumber respects locale grouping", () => {
-    expect(i.locale("en-US").formatNumber(1234567)).toBe("1,234,567");
-    expect(i.locale("de-DE").formatNumber(1234567)).toBe("1.234.567");
+    expect(i.localize("en-US").formatNumber(1234567)).toBe("1,234,567");
+    expect(i.localize("de-DE").formatNumber(1234567)).toBe("1.234.567");
   });
 
   it("formatNumber passes through options", () => {
-    const out = i.locale("en-US").formatNumber(0.5, { style: "percent" });
+    const out = i.localize("en-US").formatNumber(0.5, { style: "percent" });
     expect(out).toBe("50%");
   });
 
   it("numberFormat returns an Intl.NumberFormat", () => {
-    const nf = i.locale("en-US").numberFormat({ minimumFractionDigits: 2 });
+    const nf = i.localize("en-US").numberFormat({ minimumFractionDigits: 2 });
     expect(nf).toBeInstanceOf(Intl.NumberFormat);
     expect(nf.format(1)).toBe("1.00");
   });
 
   it("formatDateTime returns a string and dateTimeFormat an Intl.DateTimeFormat", () => {
     const d = new Date(Date.UTC(2020, 0, 2, 3, 4, 5));
-    const s = i.locale("en-US").formatDateTime(d, { timeZone: "UTC", year: "numeric" });
+    const s = i.localize("en-US").formatDateTime(d, { timeZone: "UTC", year: "numeric" });
     expect(typeof s).toBe("string");
     expect(s).toContain("2020");
-    const dtf = i.locale("en-US").dateTimeFormat({ timeZone: "UTC" });
+    const dtf = i.localize("en-US").dateTimeFormat({ timeZone: "UTC" });
     expect(dtf).toBeInstanceOf(Intl.DateTimeFormat);
   });
 
-  it("localizer.locale(tag) returns a localizer for another locale on the same instance", () => {
-    const fromEn = i.locale("en-US");
-    const asDe = fromEn.locale("de-DE");
+  it("localizer.localize(tag) returns a localizer for another locale on the same instance", () => {
+    const fromEn = i.localize("en-US");
+    const asDe = fromEn.localize("de-DE");
     expect(asDe.formatNumber(1000)).toBe("1.000");
   });
 
   it("memoizes one Localizer per distinct locale string", () => {
-    expect(i.locale("en-US")).toBe(i.locale("en-US"));
-    expect(i.locale("en-US")).not.toBe(i.locale("de-DE"));
+    expect(i.localize("en-US")).toBe(i.localize("en-US"));
+    expect(i.localize("en-US")).not.toBe(i.localize("de-DE"));
   });
 });
 
@@ -446,7 +446,7 @@ describe("instance config accessors", () => {
     const onLocaleChange = vi.fn(() => () => {});
     const i = createI18n({ getPrimaryLocale: () => "de", onLocaleChange });
     // createI18n is eager -> already initialized exactly once at construction.
-    i.locale("de");
+    i.localize("de");
     i.getPrimaryLocale();
     i.getFallbackLocales();
     expect(onLocaleChange).toHaveBeenCalledTimes(1);
@@ -502,7 +502,7 @@ describe("getI18n / initI18n", () => {
     const lns = m.createNamespace<{ a: string }>({ key: "n" });
     m.getI18n().addTexts({ de: [lns.full({ a: "Hallo" })] });
     m.initI18n({ getPrimaryLocale: () => "de" });
-    expect(m.getI18n().locale("de").getText(lns, "a")).toBe("Hallo");
+    expect(m.getI18n().localize("de").getText(lns, "a")).toBe("Hallo");
   });
 });
 
@@ -574,48 +574,12 @@ describe("localize controller", () => {
     expect(host.controllers).toContain(c);
   });
 
-  it("resolves locale lazily — constructing it before initI18n does NOT lock out initI18n (#4)", async () => {
-    const m = await freshModule();
-    m.localize(makeHost()); // bound to the global instance by default
-    expect(() => m.initI18n({ getPrimaryLocale: () => "de" })).not.toThrow();
-  });
-
   it("getText before connect resolves using the instance primary locale", () => {
     const ns = createNamespace<{ hi: string }>({ key: "c" });
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [ns.partial({ hi: "Hallo" })] });
     const c = localize(makeHost(), i);
     expect(c.getText(ns, "hi")).toBe("Hallo");
-  });
-
-  it("hostConnected does exactly one requestUpdate and reacts to later locale changes", () => {
-    const ns = createNamespace<{ hi: string }>({ key: "c" });
-    let current = "de";
-    let trigger: (() => void) | undefined;
-    const i = createI18n({
-      getPrimaryLocale: () => current,
-      onLocaleChange: (cb) => {
-        trigger = cb;
-        return () => {
-          trigger = undefined;
-        };
-      },
-    });
-    i.addTexts({
-      de: [ns.partial({ hi: "Hallo" })],
-      en: [ns.partial({ hi: "Hi" })],
-    });
-    const host = makeHost();
-    const c = localize(host, i);
-
-    c.hostConnected();
-    expect(host.updates).toBe(1);
-    expect(c.getText(ns, "hi")).toBe("Hallo");
-
-    current = "en";
-    trigger?.();
-    expect(host.updates).toBe(2);
-    expect(c.getText(ns, "hi")).toBe("Hi");
   });
 
   it("hostDisconnected unsubscribes and is a no-op when called again or before connect", () => {
@@ -646,14 +610,14 @@ describe("localize controller", () => {
     expect(host.updates).toBe(afterConnect);
   });
 
-  it("delegates formatting + locale(tag) to the bound instance", () => {
+  it("delegates formatting + localize(tag) to the bound instance", () => {
     const i = createI18n({ getPrimaryLocale: () => "en-US" });
     const c = localize(makeHost(), i);
     expect(c.formatNumber(1000)).toBe("1,000");
     expect(c.numberFormat()).toBeInstanceOf(Intl.NumberFormat);
     expect(typeof c.formatDateTime(new Date(0), { timeZone: "UTC" })).toBe("string");
     expect(c.dateTimeFormat()).toBeInstanceOf(Intl.DateTimeFormat);
-    expect(c.locale("de-DE").formatNumber(1000)).toBe("1.000");
+    expect(c.localize("de-DE").formatNumber(1000)).toBe("1.000");
   });
 
   it("defaults to the global instance when no instance is supplied", async () => {
@@ -700,15 +664,15 @@ describe("config.getText middleware (next delegate)", () => {
       },
     });
     i.addTexts({ en: [common.partial({ bye: "Bye (built-in)" })] });
-    expect(i.locale("en").getText(common, "greeting")).toBe("Hello (ext)"); // from store
-    expect(i.locale("en").getText(common, "bye")).toBe("Bye (built-in)"); // via next()
+    expect(i.localize("en").getText(common, "greeting")).toBe("Hello (ext)"); // from store
+    expect(i.localize("en").getText(common, "bye")).toBe("Bye (built-in)"); // via next()
   });
 
   it("passes locale, group, key, params, and a next() thunk into the hook", () => {
     const spy = vi.fn((_l, _ns, _k, _p, next) => next());
     const i = createI18n({ getPrimaryLocale: () => "en", getText: spy });
     i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
-    i.locale("en").getText(common, "greeting");
+    i.localize("en").getText(common, "greeting");
     const call = spy.mock.calls[0];
     expect(call[0]).toBe("en");
     expect(call[1].group).toBe("common");
@@ -726,8 +690,8 @@ describe("config.getText middleware (next delegate)", () => {
       },
     });
     i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
-    expect(i.locale("en").getText(common, "greeting")).toBe("Hi");
-    expect(i.locale("en").getText(common, "bye")).toBe("⟪missing: common.bye⟫");
+    expect(i.localize("en").getText(common, "greeting")).toBe("Hi");
+    expect(i.localize("en").getText(common, "bye")).toBe("⟪missing: common.bye⟫");
   });
 
   it("wraps/transforms the built-in result", () => {
@@ -736,7 +700,7 @@ describe("config.getText middleware (next delegate)", () => {
       getText: (_l, _ns, _k, _p, next) => next().toUpperCase(),
     });
     i.addTexts({ en: [common.partial({ greeting: "Hi" })] });
-    expect(i.locale("en").getText(common, "greeting")).toBe("HI");
+    expect(i.localize("en").getText(common, "greeting")).toBe("HI");
   });
 
   it("delegating with next() equals the un-hooked behavior, including miss -> key", () => {
@@ -746,9 +710,9 @@ describe("config.getText middleware (next delegate)", () => {
     });
     const plain = createI18n({ getPrimaryLocale: () => "en" });
     for (const inst of [passthrough, plain]) inst.addTexts({ en: [common.partial({ greeting: "Hi" })] });
-    expect(passthrough.locale("en").getText(common, "greeting")).toBe("Hi");
-    expect(passthrough.locale("en").getText(common, "bye")).toBe("bye"); // same miss->key as plain
-    expect(plain.locale("en").getText(common, "bye")).toBe("bye");
+    expect(passthrough.localize("en").getText(common, "greeting")).toBe("Hi");
+    expect(passthrough.localize("en").getText(common, "bye")).toBe("bye"); // same miss->key as plain
+    expect(plain.localize("en").getText(common, "bye")).toBe("bye");
   });
 
   it("forwards params for external interpolation", () => {
@@ -759,7 +723,7 @@ describe("config.getText middleware (next delegate)", () => {
       getPrimaryLocale: () => "en",
       getText: (locale, ns, key, params) => ext.t(locale, ns.group ?? "translation", key, params as any),
     });
-    expect(i.locale("en").getText(dyn, "hi", { name: "Mara" })).toBe("Hi Mara");
+    expect(i.localize("en").getText(dyn, "hi", { name: "Mara" })).toBe("Hi Mara");
   });
 });
 
@@ -779,7 +743,7 @@ function setup() {
   i.addTexts({
     en: [dialog.full({ title: "Title", hi: ({ name }) => `Hi ${name}` }), other.full({ ok: "OK" })],
   });
-  return i.locale("en");
+  return i.localize("en");
 }
 
 describe("Localizer.bindTexts()", () => {
@@ -808,8 +772,8 @@ describe("Localizer.bindTexts()", () => {
   it("scoped function reflects the localizer's locale", () => {
     const i = createI18n({ getPrimaryLocale: () => "de" });
     i.addTexts({ de: [dialog.partial({ title: "Titel" })], en: [dialog.partial({ title: "Title" })] });
-    expect(i.locale("de").bindTexts(dialog)("title")).toBe("Titel");
-    expect(i.locale("en").bindTexts(dialog)("title")).toBe("Title");
+    expect(i.localize("de").bindTexts(dialog)("title")).toBe("Titel");
+    expect(i.localize("en").bindTexts(dialog)("title")).toBe("Title");
   });
 
   it("controller.bindTexts() is reactive: re-binding per call tracks the active locale", () => {

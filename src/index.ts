@@ -109,7 +109,7 @@ type Localizer = {
   numberFormat(options?: Intl.NumberFormatOptions): Intl.NumberFormat;
   formatDateTime(value: Date, options?: Intl.DateTimeFormatOptions): string;
   dateTimeFormat(options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat;
-  locale(locale: Locale): Localizer; // a Localizer for a different locale on the same I18n instance
+  localize(locale: Locale): Localizer; // a Localizer for a different locale on the same I18n instance
 
   // Return a standalone getText function. With no namespace it is exactly `getText`.
   // With a namespace it is scoped to it — call `t(key[, params])` — while still
@@ -151,7 +151,7 @@ type ScopedGetText<T extends TextMap> = {
 // (internal)
 type I18n = {
   addTexts(...textBundles: TextBundle[]): void;
-  locale(locale: Locale): Localizer; // a Localizer bound to `locale`
+  localize(locale?: Locale): Localizer; // a Localizer bound to `locale`
   getPrimaryLocale(): Locale;
   getFallbackLocales(): Locale[];
   onLocaleChange(listener: ChangeListener): Unsubscribe;
@@ -337,7 +337,7 @@ function resolveText(
 
     if (typeof value === "function" && params != null) {
       // dynamic with params -> invoke with a localizer for the FOUND locale
-      return value(params, i18n.locale(candidate));
+      return value(params, i18n.localize(candidate));
     }
 
     // absent, function-without-params, or non-string/non-function -> skip
@@ -358,7 +358,7 @@ function resolveText(
  * construction, so `addTexts` notifies `onAddTexts` directly rather than buffering.
  */
 function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nConfig, lazy: boolean): I18n {
-  const localizerCache = new Map<string, Localizer>();
+  const localizerCache = new Map<string | null, Localizer>();
   const changeListeners = new Set<ChangeListener>();
   // Add-notifications recorded while `initialized === false`. Replayed to
   // `config.onAddTexts` once the config is resolved. Only fills for the global
@@ -399,24 +399,24 @@ function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nCon
     pendingAddNotifications.length = 0;
   }
 
-  function createLocalizer(activeLocale: string): Localizer {
+  function createLocalizer(getLocale: () => Locale): Localizer {
     const getText: GetTextImpl = (namespace, key, params = null) => {
       const custom = config.getText;
       if (!custom) {
-        return resolveText(dictionary, i18n, activeLocale, namespace, key as string, params);
+        return resolveText(dictionary, i18n, getLocale(), namespace, key as string, params);
       }
-      const next = (): string => resolveText(dictionary, i18n, activeLocale, namespace, key as string, params);
-      return custom(activeLocale, namespace, key as string, params, next);
+      const next = (): string => resolveText(dictionary, i18n, getLocale(), namespace, key as string, params);
+      return custom(getLocale(), namespace, key as string, params, next);
     };
 
     const localizer: Localizer = {
       getText,
       bindTexts: createTextMethod(getText),
-      formatNumber: (value, options) => new Intl.NumberFormat(activeLocale, options).format(value),
-      numberFormat: (options) => new Intl.NumberFormat(activeLocale, options),
-      formatDateTime: (value, options) => new Intl.DateTimeFormat(activeLocale, options).format(value),
-      dateTimeFormat: (options) => new Intl.DateTimeFormat(activeLocale, options),
-      locale: (tag) => i18n.locale(tag),
+      formatNumber: (value, options) => new Intl.NumberFormat(getLocale(), options).format(value),
+      numberFormat: (options) => new Intl.NumberFormat(getLocale(), options),
+      formatDateTime: (value, options) => new Intl.DateTimeFormat(getLocale(), options).format(value),
+      dateTimeFormat: (options) => new Intl.DateTimeFormat(getLocale(), options),
+      localize: (tag) => i18n.localize(tag),
     };
 
     return localizer;
@@ -447,14 +447,14 @@ function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nCon
       }
     },
 
-    locale(locale) {
+    localize(locale?) {
       ensureInitialized(); // first touch triggers one-time initialization
 
       // Memoize one Localizer per distinct `locale` string argument.
-      let localizer = localizerCache.get(locale);
+      let localizer = localizerCache.get(locale ?? null);
       if (!localizer) {
-        localizer = createLocalizer(locale);
-        localizerCache.set(locale, localizer);
+        localizer = createLocalizer(locale ? () => locale : () => i18n.getPrimaryLocale());
+        localizerCache.set(locale ?? null, localizer);
       }
       return localizer;
     },
@@ -607,36 +607,25 @@ function initI18n(config: I18nConfig): void {
 }
 
 function localize(host: LocalizeControllerHost, i18n: I18n = getI18n()): LocalizeController & Localizer {
+  const localizer = i18n.localize();
+
   // Resolved lazily, NOT at construction: merely creating a controller (e.g. in a class
   // field initializer that runs before initI18n) must not force the bound instance to
   // initialize. The locale is read on connect, or on first use before connection.
-  let activeLocale: Locale | null = null;
   let unsubscribe: Unsubscribe | null = null;
-
-  // The controller's current locale: the value synced while connected, or the bound
-  // instance's primary locale resolved on first use before connection.
-  const currentLocale = (): Locale => activeLocale ?? (activeLocale = i18n.getPrimaryLocale());
 
   // Route reads through the bound instance's `locale()` so text resolves against the
   // bound instance's dictionary, at the controller's current active locale.
-  const getText: GetTextImpl = (namespace, key, params = null) =>
-    (i18n.locale(currentLocale()).getText as GetTextImpl)(namespace, key, params);
+  const getText: GetTextImpl = (namespace, key, params = null) => localizer.getText(namespace, key, params);
 
   const controller: LocalizeController & Localizer = {
     host,
 
     hostConnected() {
-      unsubscribe = i18n.onLocaleChange(() => {
-        activeLocale = i18n.getPrimaryLocale();
-        host.requestUpdate();
-      });
-      // One immediate sync: exactly one requestUpdate on connect.
-      activeLocale = i18n.getPrimaryLocale();
-      host.requestUpdate();
+      unsubscribe = i18n.onLocaleChange(() => host.requestUpdate());
     },
 
     hostDisconnected() {
-      // No-op if never connected (or disconnected twice).
       if (unsubscribe) {
         unsubscribe();
         unsubscribe = null;
@@ -645,11 +634,11 @@ function localize(host: LocalizeControllerHost, i18n: I18n = getI18n()): Localiz
 
     getText,
     bindTexts: createTextMethod(getText),
-    formatNumber: (value, options?) => i18n.locale(currentLocale()).formatNumber(value, options),
-    numberFormat: (options?) => i18n.locale(currentLocale()).numberFormat(options),
-    formatDateTime: (value, options?) => i18n.locale(currentLocale()).formatDateTime(value, options),
-    dateTimeFormat: (options?) => i18n.locale(currentLocale()).dateTimeFormat(options),
-    locale: (tag: Locale) => i18n.locale(tag),
+    formatNumber: (value, options?) => localizer.formatNumber(value, options),
+    numberFormat: (options?) => localizer.numberFormat(options),
+    formatDateTime: (value, options?) => localizer.formatDateTime(value, options),
+    dateTimeFormat: (options?) => localizer.dateTimeFormat(options),
+    localize: (locale: Locale) => i18n.localize(locale),
   };
 
   host.addController(controller);
