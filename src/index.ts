@@ -7,9 +7,9 @@
  * Single module. Exports six functions (`bundleTexts`, `createI18n`,
  * `createNamespace`, `getI18n`, `initI18n`, `localize`) plus a set of types.
  *
- * NOTE: Locale tracking is wired through the instance config. `getPrimaryLocale()`,
- * `getFallbackLocales()`, and `onLocaleChange` consult the resolved config; the config
- * supplies the locale-change source, and `onLocaleChange` listeners fire whenever that
+ * NOTE: Locale tracking is wired through the instance config. `getLocale()`,
+ * `getFallbackLocales()`, and `onChange` consult the resolved config; the config
+ * supplies the locale-change source, and `onChange` listeners fire whenever that
  * source signals a change. On the client the global instance defaults to a `<html lang>`
  * monitor as its source.
  *
@@ -22,6 +22,8 @@ export { bundleTexts, createI18n, createNamespace, getI18n, initI18n, localize }
 
 export type {
   GetText,
+  I18n,
+  I18nConfig,
   Locale,
   LocalizeController,
   LocalizeControllerHost,
@@ -148,20 +150,17 @@ type ScopedGetText<T extends TextMap> = {
 
 /* I18n and its config */
 
-// (internal)
 type I18n = {
   addTexts(...textBundles: TextBundle[]): void;
-  localize(locale?: Locale): Localizer; // a Localizer bound to `locale`
-  getPrimaryLocale(): Locale;
-  getFallbackLocales(): Locale[];
-  onLocaleChange(listener: ChangeListener): Unsubscribe;
+  getLocale(): Locale;
+  onChange(listener: ChangeListener): Unsubscribe;
+  localize(locale?: Locale): Localizer; // a static Localizer bound to `locale` or a dynamic one
 };
 
-// (internal)
 type I18nConfig = {
-  getPrimaryLocale?(): Locale;
+  getLocale?(): Locale;
   getFallbackLocales?(): Locale[];
-  onLocaleChange?(listener: ChangeListener): Unsubscribe;
+  onChange?(listener: ChangeListener): Unsubscribe;
   onAddTexts?(locale: Locale, namespace: Namespace<any>, key: TextKey): void;
   getText?(locale: Locale, namespace: Namespace<any>, key: TextKey, params: unknown, next: () => string): string;
 };
@@ -319,13 +318,14 @@ function resolveText(
   dictionary: Dictionary,
   i18n: I18n,
   locale: Locale,
+  fallbackLocales: Locale[],
   namespace: Namespace<any>,
   key: string,
   params: unknown,
 ): string {
   // Requested locale's tag chain, then each configured fallback locale's tag chain.
   // Building the requested locale's chain throws on an invalid tag (propagates).
-  const chain = buildResolutionChain(locale, i18n.getFallbackLocales());
+  const chain = buildResolutionChain(locale, fallbackLocales);
 
   for (const candidate of chain) {
     const value = dictionary[candidate]?.[namespace.key]?.[key];
@@ -387,7 +387,7 @@ function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nCon
     if (initialized) return;
     initialized = true;
     config = resolveConfig();
-    config.onLocaleChange?.(() => {
+    config.onChange?.(() => {
       for (const listener of [...changeListeners] /* NOSONAR */) listener();
     });
     // Replay add-notifications recorded before init, in registration order.
@@ -403,9 +403,26 @@ function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nCon
     const getText: GetTextImpl = (namespace, key, params = null) => {
       const custom = config.getText;
       if (!custom) {
-        return resolveText(dictionary, i18n, getLocale(), namespace, key as string, params);
+        return resolveText(
+          dictionary,
+          i18n,
+          getLocale(),
+          resolveConfig().getFallbackLocales?.() ?? [],
+          namespace,
+          key as string,
+          params,
+        );
       }
-      const next = (): string => resolveText(dictionary, i18n, getLocale(), namespace, key as string, params);
+      const next = (): string =>
+        resolveText(
+          dictionary,
+          i18n,
+          getLocale(),
+          resolveConfig().getFallbackLocales?.() ?? [],
+          namespace,
+          key as string,
+          params,
+        );
       return custom(getLocale(), namespace, key as string, params, next);
     };
 
@@ -453,23 +470,18 @@ function createI18nInstance(dictionary: Dictionary, resolveConfig: () => I18nCon
       // Memoize one Localizer per distinct `locale` string argument.
       let localizer = localizerCache.get(locale ?? null);
       if (!localizer) {
-        localizer = createLocalizer(locale ? () => locale : () => i18n.getPrimaryLocale());
+        localizer = createLocalizer(locale ? () => locale : () => i18n.getLocale());
         localizerCache.set(locale ?? null, localizer);
       }
       return localizer;
     },
 
-    getPrimaryLocale(): Locale {
+    getLocale(): Locale {
       ensureInitialized();
-      return config.getPrimaryLocale?.() ?? "en-US";
+      return config.getLocale?.() ?? "en-US";
     },
 
-    getFallbackLocales(): Locale[] {
-      ensureInitialized();
-      return config.getFallbackLocales ? [...config.getFallbackLocales()] : [];
-    },
-
-    onLocaleChange(listener) {
+    onChange(listener) {
       ensureInitialized();
       changeListeners.add(listener);
       return () => void changeListeners.delete(listener); // NOSONAR // idempotent
@@ -498,7 +510,7 @@ function isClientSide(g = globalThis): boolean {
 
 /**
  * Construct the default locale source that watches `<html lang>`. It exposes
- * `getPrimaryLocale` (reading the live attribute) and `onLocaleChange` (driven by a
+ * `getLocale` (reading the live attribute) and `onChange` (driven by a
  * MutationObserver on the `lang` attribute), and becomes the global instance's config
  * on the client.
  */
@@ -517,8 +529,8 @@ function createDocumentLangMonitor(g = globalThis): I18nConfig {
   });
 
   return {
-    getPrimaryLocale: () => g.document.documentElement.getAttribute("lang") ?? "en-US",
-    onLocaleChange: (listener) => {
+    getLocale: () => g.document.documentElement.getAttribute("lang") ?? "en-US",
+    onChange: (listener) => {
       listeners.push(listener);
       return () => {
         listeners = listeners.filter((it) => it !== listener);
@@ -546,7 +558,7 @@ let globalI18nInitialized = false; // guards "too late"
 function resolveGlobalConfig(): I18nConfig {
   let config: I18nConfig = globalI18nConfig ?? {};
 
-  if (isClientSide() && !config.getPrimaryLocale && !config.onLocaleChange) {
+  if (isClientSide() && !config.getLocale && !config.onChange) {
     // Install the default <html lang> monitor as the locale source.
     config = { ...config, ...createDocumentLangMonitor() };
   }
@@ -622,7 +634,7 @@ function localize(host: LocalizeControllerHost, i18n: I18n = getI18n()): Localiz
     host,
 
     hostConnected() {
-      unsubscribe = i18n.onLocaleChange(() => host.requestUpdate());
+      unsubscribe = i18n.onChange(() => host.requestUpdate());
     },
 
     hostDisconnected() {
