@@ -1,6 +1,6 @@
 {
   "name": "js-lingo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A small I18n library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.es",
@@ -8,7 +8,7 @@
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.es.d.ts",
+        "types": "./dist/index.d.ts",
          "default": "./dist/index.es"  
       },
       "require": {
