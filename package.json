@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "build": "vite build",
-    "postbuild": "node scripts/pack-source.mts",
+    "build:release": "vite build && node scripts/pack-source.mts",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",

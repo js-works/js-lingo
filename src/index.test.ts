@@ -475,7 +475,7 @@ describe("getI18n / initI18n", () => {
 
   it("throws 'Too late' when init happens after the global instance initialized", async () => {
     const m = await freshModule();
-    m.getI18n().getLocale(); // forces global init
+    m.getI18n().localize("es"); // forces global init
     expect(() => m.initI18n({ getLocale: () => "de" })).toThrow(/Too late/);
   });
 
