@@ -118,7 +118,11 @@ type Localizer = Readonly<{
     <K extends TextKeysWithoutParams<T>>(key: K): string;
     <K extends TextKeysWithParams<T>>(key: K, params: TranslationParams<T[K]>): string;
     <U extends TextMap, K extends TextKeysWithoutParams<U>>(namespace: Namespace<U>, key: K): string;
-    <U extends TextMap, K extends TextKeysWithParams<U>>(key: K, params: TranslationParams<U[K]>): string;
+    <U extends TextMap, K extends TextKeysWithParams<U>>(
+      namespace: Namespace<U>,
+      key: K,
+      params: TranslationParams<U[K]>,
+    ): string;
   };
 }>;
 
@@ -442,15 +446,8 @@ function createLocalizer(
   };
 
   const bindTexts: Localizer["bindTexts"] = (boundNs?: Namespace<any>) => {
-    // Loose view for internal dispatch. Callers are still fully type-checked
-    // against the overloads declared on `Localizer["bindTexts"]`.
     const lookup = getText as (ns: any, key: any, params?: any) => string;
 
-    // One closure serves every form. A key is a string and a namespace is an
-    // object, so the first argument disambiguates:
-    //   scoped:    t(key, params?)            -> resolve `key` in `boundNs`
-    //   qualified: t(namespace, key, params?) -> look up in another namespace
-    //   unscoped:  t(namespace, key, params?) -> `boundNs` undefined, forward as-is
     return (a: unknown, b?: unknown, c?: unknown): string =>
       boundNs && typeof a === "string" ? lookup(boundNs, a, b) : lookup(a, b, c);
   };
