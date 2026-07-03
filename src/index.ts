@@ -441,14 +441,18 @@ function createLocalizer(
     return custom(getLocale(), namespace, key as string, params, next);
   };
 
-  // TODO - sorry for that ;-)
-  const bindTexts: any = (namespace?: Namespace<any>) => {
-    const getTxt: any = getText;
+  const bindTexts: Localizer["bindTexts"] = (boundNs?: Namespace<any>) => {
+    // Loose view for internal dispatch. Callers are still fully type-checked
+    // against the overloads declared on `Localizer["bindTexts"]`.
+    const lookup = getText as (ns: any, key: any, params?: any) => string;
 
-    return namespace
-      ? (arg1: any, arg2: any, arg3: any) =>
-          typeof arg1 === "string" ? getTxt(namespace, arg1, arg2) : getTxt(arg1, arg2, arg3)
-      : (arg1: any, arg2: any, arg3: any) => getTxt(arg1, arg2, arg3);
+    // One closure serves every form. A key is a string and a namespace is an
+    // object, so the first argument disambiguates:
+    //   scoped:    t(key, params?)            -> resolve `key` in `boundNs`
+    //   qualified: t(namespace, key, params?) -> look up in another namespace
+    //   unscoped:  t(namespace, key, params?) -> `boundNs` undefined, forward as-is
+    return (a: unknown, b?: unknown, c?: unknown): string =>
+      boundNs && typeof a === "string" ? lookup(boundNs, a, b) : lookup(a, b, c);
   };
 
   return freeze({
