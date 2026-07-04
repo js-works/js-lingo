@@ -63,13 +63,13 @@ type Namespace<T extends TextMap> = Readonly<{
   key: string;
   group: string | null;
   full: (texts: T) => NamespaceTexts<T>; // requires every key of T
-  partial: (texts: Partial<T>) => NamespaceTexts<T>; // allows a subset of keys
+  partial: <K extends keyof T>(texts: Pick<T, K>) => NamespaceTexts<T, Pick<T, K>>;
 }>;
 
 // A namespace paired with (some of) its texts, produced by namespace `full`/`partial`.
-type NamespaceTexts<T extends TextMap> = Readonly<{
+type NamespaceTexts<T extends TextMap, Texts = T> = Readonly<{
   namespace: Namespace<T>;
-  texts: Partial<T>;
+  texts: Texts;
 }>;
 
 // Translations grouped by locale, each locale mapping to a list of namespace text groups.
@@ -455,7 +455,7 @@ function createLocalizer(
   return freeze({
     getText,
     bindTexts,
-    formatNumber: (value, options) => new Intl.NumberFormat(getLocale(), options).format(value),
+    formatNumber: (value, options?) => new Intl.NumberFormat(getLocale(), options).format(value),
     numberFormat: (options) => new Intl.NumberFormat(getLocale(), options),
     formatDateTime: (value, options) => new Intl.DateTimeFormat(getLocale(), options).format(value),
     dateTimeFormat: (options) => new Intl.DateTimeFormat(getLocale(), options),
@@ -539,8 +539,8 @@ function createNamespace<T extends TextMap>(params: { key: string; group?: strin
   const namespace: Namespace<T> = freeze({
     key: params.key,
     group: params.group ?? null,
-    full: (texts): NamespaceTexts<T> => freeze({ namespace, texts }),
-    partial: (texts): NamespaceTexts<T> => freeze({ namespace, texts }),
+    full: (texts) => freeze({ namespace, texts }),
+    partial: (texts) => freeze({ namespace, texts }),
   });
 
   return namespace;
