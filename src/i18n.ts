@@ -78,14 +78,13 @@
  */
 
 export {
-  allTexts,
   bundleTexts,
   createI18n,
   createNamespace,
   defaultLocaleSource,
   defaultTextSource,
-  texts,
-  withFallbackLocales,
+  fullTexts,
+  partialTexts,
 };
 
 export type {
@@ -154,13 +153,13 @@ type TextsOf<T extends TextMap> = {
 
 // A typed namespace: pure data — resolution identity (`key`, matched as a string, so
 // duplicate module copies in one bundle still interoperate) plus the default texts.
-// Texts for other locales are attached with the freestanding `texts`/`allTexts`.
+// Texts for other locales are attached with the freestanding `fullTexts`/`partialTexts`.
 type Namespace<T extends TextMap> = Readonly<{
   key: string;
   defaults: Readonly<T>;
 }>;
 
-// A namespace paired with texts for one locale, produced by `texts`/`allTexts`.
+// A namespace paired with texts for one locale, produced by `fullTexts`/`partialTexts`.
 type NamespaceTexts<T extends TextMap> = Readonly<{
   namespace: Namespace<T>;
   texts: TextsOf<T>;
@@ -297,9 +296,8 @@ type I18nConfig = Readonly<{
   // the client, fixed "en-US" elsewhere.
   localeSource?: LocaleSource;
 
-  // Text-resolution strategy — e.g. `defaultTextSource({...})`, a composed source
-  // like `withFallbackLocales(source, [...])`, or an adapter for a third-party i18n
-  // library. Default: none — resolution falls through to the namespace defaults.
+  // Text-resolution strategy — e.g. `defaultTextSource({...})`, a composed source.
+  // Default: none — resolution falls through to the namespace defaults.
   textSource?: TextSource;
 
   // Decorates every resolution. Index 0 is outermost.
@@ -835,33 +833,13 @@ function createI18n(config: I18nConfig = {}): I18n {
  * shape (keys + param types) AND serve as the resolution terminal — a component
  * library shipping a namespace works without any app cooperation. Namespaces are
  * pure data; translations for other locales are attached with the freestanding
- * `texts` / `allTexts`.
+ * `fullTexts` / `partialTexts`.
  */
 function createNamespace<T extends TextMap>(params: { key: string; defaults: T }): Namespace<T> {
   return freeze({
     key: params.key,
     defaults: freeze({ ...params.defaults }),
   });
-}
-
-/**
- * Attach texts for one locale to a namespace — partial, the normal case: anything
- * missing falls back through the pipeline down to the namespace defaults.
- */
-function texts<T extends TextMap>(namespace: Namespace<T>, texts: TextsOf<T>): NamespaceTexts<T> {
-  return freeze({ namespace, texts });
-}
-
-/**
- * Like `texts`, but completeness is compile-checked: every key of the namespace must
- * be present. Use for translations that CLAIM to be complete — e.g. the locale
- * bundles a component library ships.
- */
-function allTexts<T extends TextMap>(
-  namespace: Namespace<T>,
-  texts: Required<TextsOf<T>>,
-): NamespaceTexts<T> {
-  return freeze({ namespace, texts });
 }
 
 /**
@@ -872,4 +850,106 @@ function allTexts<T extends TextMap>(
  */
 function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
   return texts;
+}
+
+// ------------------------------------------------------------------
+// fullTexts / partialTexts — drop-in replacement for allTexts / texts.
+// Relies on the existing library internals: Namespace, NamespaceTexts,
+// TextMap, TextsOf, freeze. No other dependencies.
+// ------------------------------------------------------------------
+
+/** Quote and comma-join keys for error messages. */
+function describeKeys(keys: string[]): string {
+  return keys.map((key) => `"${key}"`).join(", ");
+}
+
+/**
+ * Runtime validation of a translation against its namespace's defaults — the
+ * JavaScript twin of the compile-time checks, so plain-JS callers get the same
+ * guarantees, loudly and at the declaration site (module load of the translation
+ * module):
+ *
+ *   - unknown keys (not present in the defaults) -> TypeError
+ *   - kind mismatches (string where the default is a function, or vice versa)
+ *     -> TypeError
+ *   - missing keys (only when completeness is required, i.e. `fullTexts`)
+ *     -> TypeError
+ *
+ * An explicit `undefined` value counts as "not provided" — consistent with the
+ * store, which skips `undefined` so it never shadows anything. All problems are
+ * collected into ONE error, so a broken translation module reports everything
+ * at once instead of failing key by key.
+ *
+ * Note: only these functions validate. Hand-built NamespaceTexts objects bypass
+ * the checks deliberately — the functions are the validated path, not the only
+ * one.
+ */
+function validateTranslationTexts(
+  callerName: string,
+  namespace: Namespace<any>,
+  providedTexts: Record<string, unknown>,
+  requireComplete: boolean,
+): void {
+  // The defaults object has a normal prototype, so use Object.hasOwn — a provided
+  // key like "toString" must count as unknown, not as inherited.
+  const defaults = namespace.defaults as Record<string, unknown>;
+  const providedKeys = Object.keys(providedTexts).filter((key) => providedTexts[key] !== undefined);
+  const issues: string[] = [];
+
+  const unknownKeys = providedKeys.filter((key) => !Object.hasOwn(defaults, key));
+  if (unknownKeys.length > 0) {
+    issues.push(`unknown keys [${describeKeys(unknownKeys.sort())}]`);
+  }
+
+  const mismatchedKeys = providedKeys
+    .filter((key) => Object.hasOwn(defaults, key))
+    .filter((key) => typeof providedTexts[key] !== typeof defaults[key])
+    .sort()
+    .map((key) => `"${key}" (expected ${typeof defaults[key]}, got ${typeof providedTexts[key]})`);
+  if (mismatchedKeys.length > 0) {
+    issues.push(`kind mismatches [${mismatchedKeys.join(", ")}]`);
+  }
+
+  if (requireComplete) {
+    const missingKeys = Object.keys(defaults).filter((key) => providedTexts[key] === undefined);
+    if (missingKeys.length > 0) {
+      issues.push(`missing keys [${describeKeys(missingKeys.sort())}]`);
+    }
+  }
+
+  if (issues.length > 0) {
+    throw new TypeError(
+      `i18n: ${callerName} for namespace "${namespace.key}": ${issues.join("; ")}`,
+    );
+  }
+}
+
+/**
+ * Attach texts for one locale to a namespace — partial, the normal case: anything
+ * missing falls back through the pipeline down to the namespace defaults.
+ *
+ * Validated at runtime against the namespace's defaults (unknown keys and kind
+ * mismatches throw a TypeError), so plain-JS callers get the compile-time
+ * guarantees too.
+ */
+function partialTexts<T extends TextMap>(
+  namespace: Namespace<T>,
+  texts: TextsOf<T>,
+): NamespaceTexts<T> {
+  validateTranslationTexts("partialTexts", namespace, texts as Record<string, unknown>, false);
+  return freeze({ namespace, texts });
+}
+
+/**
+ * Like `partialTexts`, but completeness is required: every key of the namespace
+ * must be present — checked at compile time AND at runtime (a missing key throws
+ * a TypeError). Use for translations that CLAIM to be complete, e.g. the locale
+ * bundles a component library ships.
+ */
+function fullTexts<T extends TextMap>(
+  namespace: Namespace<T>,
+  texts: Required<TextsOf<T>>,
+): NamespaceTexts<T> {
+  validateTranslationTexts("fullTexts", namespace, texts as Record<string, unknown>, true);
+  return freeze({ namespace, texts });
 }

@@ -81,7 +81,7 @@ bundles reach whatever text source an app uses is none of their concern:
 ```ts
 export const datePickerGerman = bundleTexts({
   de: [
-    allTexts(datePickerTexts, {
+    fullTexts(datePickerTexts, {
       today: "Heute",
       dateRange: (p, i18n) => `${i18n.formatDateTime(p.from)} – ${i18n.formatDateTime(p.to)}`,
     }),
@@ -90,7 +90,7 @@ export const datePickerGerman = bundleTexts({
 ```
 
 `texts(namespace, {...})` is the normal, _partial_ form — anything missing falls back
-to the defaults. `allTexts(namespace, {...})` additionally makes the compiler verify
+to the defaults. `fullTexts(namespace, {...})` additionally makes the compiler verify
 completeness; use it for translations that claim to cover everything, e.g. the locale
 bundles a component library ships. `bundleTexts` is a type-checking identity so that
 errors surface at the declaration site instead of at a distant consumer.
@@ -184,13 +184,6 @@ const i18n = createI18n({
   },
 });
 ```
-
-Sources compose. `withFallbackLocales(source, ["en", "fr"])` wraps _any_ source with a
-cross-language fallback chain: the requested locale is tried first, then each
-fallback; the found candidate travels on as `request.locale`, so dynamic translations
-format with the locale they were actually found in. The chain is exhausted before
-namespace defaults apply. (`defaultTextSource` uses this combinator internally for
-its `fallbackLocales` option.)
 
 ## Middlewares
 
@@ -288,8 +281,8 @@ i18n.getText(datePickerTexts, "today", { x: 1 }); // error — static keys take 
 i18n.getText(datePickerTexts, "dateRange"); // error — params required
 i18n.getText(datePickerTexts, "dateRange", { from: 1 }); // error — wrong param shape
 i18n.getText(datePickerTexts, "tdoay"); // error — unknown key
-texts(datePickerTexts, { today: "Heute" }); // ok — partial by design
-allTexts(datePickerTexts, { today: "Heute" }); // error — completeness required
+partialTexts(datePickerTexts, { today: "Heute" }); // ok — partial by design
+fullTexts(datePickerTexts, { today: "Heute" }); // error — completeness required
 ```
 
 No codegen, no message DSL, no string parsing: translations are plain strings and
