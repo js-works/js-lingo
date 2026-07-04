@@ -53,7 +53,7 @@ type TranslationParams<T> = T extends TranslationFn<infer P> ? P : never;
 //   Translation<{n:number}> -> TranslationFn<{n:number}>  (dynamic text)
 type Translation<T extends Record<string, unknown> = never> = [T] extends [never] ? string : TranslationFn<T>;
 
-/* Namespaces and text maps */
+// # Namespaces and text maps
 
 // The shape of one namespace's translations: key -> static string | translation fn.
 type TextMap = Record<string, Translation | Translation<any>>;
@@ -235,11 +235,11 @@ function buildFallbackLocaleChain(locale: Locale): Locale[] {
  * invalid fallback tag is skipped rather than aborting resolution.
  */
 function buildResolutionChain(locale: Locale, fallbackLocales: Locale[]): Locale[] {
-  const chain: string[] = [];
+  const chain: Locale[] = [];
   const seen = new Set<string>();
 
-  const merge = (tags: string[]): void => {
-    for (const tag of tags) {
+  const merge = (locales: Locale[]): void => {
+    for (const tag of locales) {
       if (!seen.has(tag)) {
         seen.add(tag);
         chain.push(tag);
@@ -302,10 +302,6 @@ function resolveText(
 // -------------------------------------------------------------------
 // # I18n factory
 // -------------------------------------------------------------------
-
-function createI18n(config: I18nConfig) {
-  return createI18nInstance(createRecord(), () => config, false);
-}
 
 /**
  * Build an I18n instance backed by the given dictionary. `resolveConfig` runs at most
@@ -503,16 +499,6 @@ function createDocumentLangMonitor(g = globalThis): I18nConfig {
   };
 }
 
-// -------------------------------------------------------------------
-// # Module-level global state
-// -------------------------------------------------------------------
-
-let globalI18n: I18n | undefined;
-let globalI18nConfig: I18nConfig | undefined; // stashed by initI18n
-let globalDict: Dictionary | undefined;
-let initI18nCalled = false; // guards single-call
-let globalI18nInitialized = false; // guards "too late"
-
 /**
  * Lazy config resolution for the global instance. Runs once, on the global instance's
  * first use of any locale method. Resolves config (installing the document-lang monitor
@@ -535,24 +521,12 @@ function getGlobalConfig(): I18nConfig {
 // # Public functions
 // -------------------------------------------------------------------
 
-function createNamespace<T extends TextMap>(params: { key: string; group?: string | null }): Namespace<T> {
-  const namespace: Namespace<T> = freeze({
-    key: params.key,
-    group: params.group ?? null,
-    full: (texts) => freeze({ namespace, texts }),
-    partial: (texts) => freeze({ namespace, texts }),
-  });
-
-  return namespace;
-}
-
-function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
-  return texts; // Type-safe identity function: returns its argument unchanged.
+function createI18n(config: I18nConfig) {
+  return createI18nInstance(createRecord(), () => config, false);
 }
 
 function getI18n(): I18n {
   if (!globalI18n) {
-    globalDict = createRecord<LocaleRecord>();
     globalI18n = createI18nInstance(globalDict, getGlobalConfig, true);
   }
   return globalI18n;
@@ -568,6 +542,21 @@ function initI18n(config: I18nConfig): void {
 
   globalI18nConfig = freeze({ ...config }); // shallow clone, consumed lazily by getI18n init
   initI18nCalled = true;
+}
+
+function createNamespace<T extends TextMap>(params: { key: string; group?: string | null }): Namespace<T> {
+  const namespace: Namespace<T> = freeze({
+    key: params.key,
+    group: params.group ?? null,
+    full: (texts) => freeze({ namespace, texts }),
+    partial: (texts) => freeze({ namespace, texts }),
+  });
+
+  return namespace;
+}
+
+function bundleTexts<T extends TextBundle>(texts: T): TextBundle {
+  return texts; // Type-safe identity function: returns its argument unchanged.
 }
 
 function localize(host: LocalizeControllerHost, i18n: I18n = getI18n()): LocalizeController {
@@ -590,3 +579,13 @@ function localize(host: LocalizeControllerHost, i18n: I18n = getI18n()): Localiz
   host.addController(controller);
   return freeze(controller);
 }
+
+// -------------------------------------------------------------------
+// # Module-level global state
+// -------------------------------------------------------------------
+
+const globalDict = createRecord<LocaleRecord>();
+let globalI18n: I18n | undefined;
+let globalI18nConfig: I18nConfig | undefined; // stashed by initI18n
+let initI18nCalled = false; // guards single-call of initI18n
+let globalI18nInitialized = false; // guards "too late" call if initI18n
