@@ -1,519 +1,321 @@
 # js-lingo
 
-A lightweight, **type-safe** internationalization library for TypeScript. Translations are plain TypeScript values — static strings or functions — grouped into typed namespaces. There is **no message DSL, no code generation, and no build step**, and the only runtime dependency is the platform's built-in [`Intl`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl).
-
-The whole library is a single module that exports six functions and a handful of types.
-
-```ts
-const loc = getI18n().locale("de");
-
-loc.getText(common, "greeting"); // "Hallo"   — static, no params
-loc.getText(common, "itemCount", { count: 1000 }); // "1.000 Artikel" — dynamic, typed params
-loc.getText(common, "greeting", { count: 1 }); // ✗ compile error: this key takes no params
-loc.getText(common, "itemCount"); // ✗ compile error: this key requires params
-```
-
----
-
-## Table of contents
-
-- [Why js-lingo](#why-js-lingo)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [Core concepts](#core-concepts)
-  - [Namespaces](#namespaces)
-  - [Static and dynamic translations](#static-and-dynamic-translations)
-  - [Text bundles](#text-bundles)
-  - [The Localizer (the read side)](#the-localizer-the-read-side)
-- [Type safety](#type-safety)
-- [Locale resolution and fallback](#locale-resolution-and-fallback)
-- [The global instance and its lifecycle](#the-global-instance-and-its-lifecycle)
-- [Standalone instances](#standalone-instances)
-- [Reactive UI integration](#reactive-ui-integration)
-- [Formatting numbers and dates](#formatting-numbers-and-dates)
-- [Configuration reference](#configuration-reference)
-- [API reference](#api-reference)
-- [Patterns and recipes](#patterns-and-recipes)
-- [Behavior notes and gotchas](#behavior-notes-and-gotchas)
-- [Testing](#testing)
-- [Design philosophy](#design-philosophy)
-- [License](#license)
-
----
-
-## Why js-lingo
-
-Most i18n tooling asks you to learn a message format (ICU MessageFormat, gettext, custom YAML/JSON dialects), then run a code generator or a runtime parser to turn those messages into functions. js-lingo takes the opposite stance: **a translation is just a value your compiler already understands.**
-
-- A static translation is a `string`.
-- A dynamic translation is a function `(params, localizer) => string` — ordinary TypeScript, with ordinary control flow, ordinary string templates, and full type inference on its parameters.
-
-Because translations are typed values, TypeScript checks your call sites for free: unknown keys, missing parameters, and wrong parameter types are all compile errors, with zero generated code to keep in sync.
-
-**Highlights**
-
-- **End-to-end type safety** — keys, parameter presence, and parameter types are all checked at the call site.
-- **Tiny and dependency-free** — one module; formatting delegates to `Intl`.
-- **No DSL, no codegen** — translations are static strings or plain functions.
-- **Smart locale fallback** — BCP-47 tag chains plus configurable cross-language fallbacks.
-- **Reactive** — a controller integration re-renders your components on locale change.
-- **Namespaced** — translations are grouped and addressed through typed namespace handles, never magic string paths.
-- **SSR-friendly** — works without a DOM; on the client it can track `<html lang>` automatically.
-
----
-
-## Installation
-
-```bash
-npm install js-lingo
-```
-
-js-lingo is a single module. The examples below import from `js-lingo`; if you vendor the file directly, adjust the import path accordingly.
-
-**Requirements**
-
-- TypeScript (for the type safety; the compiled JavaScript runs anywhere).
-- A runtime with `Intl.Locale`, `Intl.NumberFormat`, and `Intl.DateTimeFormat` (modern browsers, Node 14+).
-- For the optional client-side `<html lang>` auto-tracking: a DOM with `MutationObserver`.
-
----
-
-## Quick start
+A lightweight, type-safe i18n **facade** for TypeScript — plain values instead of a
+message DSL, swappable strategies instead of a built-in framework, and `Intl` as the
+one thing that is deliberately not configurable.
 
 ```ts
-import { bundleTexts, createNamespace, getI18n, initI18n, type Translation } from "js-lingo";
+const datePickerTexts = createNamespace({
+  key: "date-picker",
+  defaults: {
+    today: "Today",
+    dateRange: (p: { from: Date; to: Date }, i18n) =>
+      `${i18n.formatDateTime(p.from)} – ${i18n.formatDateTime(p.to)}`,
+  },
+});
 
-// 1. Declare a typed namespace.
-const common = createNamespace<{
-  greeting: Translation; // static  -> string
-  itemCount: Translation<{ count: number }>; // dynamic -> (params, localizer) => string
-}>({ key: "common" });
+const i18n = createI18n();
+i18n.getText(datePickerTexts, "today"); // "Today"
+i18n.getText(datePickerTexts, "dateRange", { from, to }); // typed params, checked at compile time
+i18n.formatNumber(1234.5); // Intl, in the active locale
+```
 
-// 2. Author translations, grouped by locale.
-const commonTexts = bundleTexts({
-  en: [
-    common.full({
-      greeting: "Hello",
-      itemCount: ({ count }, lz) => `${lz.formatNumber(count)} items`,
-    }),
-  ],
+No setup was needed for the code above: with zero configuration, the active locale
+follows `<html lang>` (on the client) and every namespace carries its own default
+texts. Everything beyond that — where the locale comes from, where translations come
+from — is a strategy you plug in.
+
+## Why a facade?
+
+Most i18n libraries want to _be_ your internationalization layer. This one fronts it:
+
+- **A fixed `Intl` core.** `formatNumber`, `numberFormat`, `formatDateTime`,
+  `dateTimeFormat` — thin, cached wrappers over `Intl.NumberFormat` and
+  `Intl.DateTimeFormat`. Using `Intl` (directly or indirectly) is the only reasonable
+  choice in JavaScript, so this part is intentionally not configurable.
+- **Two swappable strategies.** _Where am I?_ (`localeSource`) and _what do texts
+  resolve to?_ (`textSource`). The built-in implementations have no privileged
+  status — an adapter for i18next, FormatJS, or your backend plugs into the exact
+  same slots.
+- **One decoration slot.** `middlewares` wrap every resolution — pseudo-localization,
+  missing-text reporting, request rewriting — regardless of which source is active.
+
+The config is the whole architecture:
+
+```ts
+type I18nConfig = Readonly<{
+  localeSource?: LocaleSource; // strategy 1 — default: <html lang> monitor
+  textSource?: TextSource; // strategy 2 — default: none (namespace defaults apply)
+  middlewares?: TextMiddleware[]; // decoration — index 0 is outermost
+}>;
+```
+
+Resolution order: `middlewares → textSource → namespace defaults → bare key`.
+
+There is **no library-owned global state**. You create instances with `createI18n`
+and distribute them yourself — via argument, framework DI (React context and friends),
+or the Context Community Protocol for custom elements (see below).
+
+## Three roles, strictly separated
+
+The API is shaped around who does what:
+
+**Component authors** ship a namespace whose defaults define both the type (keys and
+parameter shapes) and the texts of last resort. A component works in any app with
+zero cooperation — untranslated, but never broken:
+
+```ts
+export const datePickerTexts = createNamespace({
+  key: "date-picker",
+  defaults: {
+    today: "Today",
+    dateRange: (p: { from: Date; to: Date }, i18n) =>
+      `${i18n.formatDateTime(p.from)} – ${i18n.formatDateTime(p.to)}`,
+  },
+});
+```
+
+**Translation authors** declare and export bundles. Their job ends there — how
+bundles reach whatever text source an app uses is none of their concern:
+
+```ts
+export const datePickerGerman = bundleTexts({
   de: [
-    common.full({
-      greeting: "Hallo",
-      itemCount: ({ count }, lz) => `${lz.formatNumber(count)} Artikel`,
+    allTexts(datePickerTexts, {
+      today: "Heute",
+      dateRange: (p, i18n) => `${i18n.formatDateTime(p.from)} – ${i18n.formatDateTime(p.to)}`,
     }),
   ],
 });
-
-// 3. Configure the global instance once, then register translations.
-initI18n({
-  getPrimaryLocale: () => "de",
-  getFallbackLocales: () => ["en"],
-});
-getI18n().addTexts(commonTexts);
-
-// 4. Read.
-const l = getI18n().locale("de");
-l.getText(common, "greeting"); // "Hallo"
-l.getText(common, "itemCount", { count: 1000 }); // "1.000 Artikel"
 ```
 
----
+`texts(namespace, {...})` is the normal, _partial_ form — anything missing falls back
+to the defaults. `allTexts(namespace, {...})` additionally makes the compiler verify
+completeness; use it for translations that claim to cover everything, e.g. the locale
+bundles a component library ships. `bundleTexts` is a type-checking identity so that
+errors surface at the declaration site instead of at a distant consumer.
 
-## Core concepts
-
-### Namespaces
-
-A **namespace** is a typed handle that identifies a group of related translations. You create one with `createNamespace`, parameterized by the shape of its texts:
-
-```ts
-const checkout = createNamespace<{
-  title: Translation;
-  total: Translation<{ amount: number }>;
-}>({ key: "checkout", group: "shop" });
-```
-
-- `key` uniquely identifies the namespace in the dictionary.
-- `group` is optional organizational metadata (defaults to `null`); it is not used during resolution but is available for your own tooling.
-
-Namespace objects are frozen at runtime. You read and write translations by passing the namespace handle — never a stringly-typed path — which is what lets the compiler verify keys and parameters.
-
-Each namespace exposes two authoring helpers:
-
-| Method           | Requires                       | Use for                                   |
-| ---------------- | ------------------------------ | ----------------------------------------- |
-| `full(texts)`    | **every** key of the namespace | a complete locale                         |
-| `partial(texts)` | **any subset** of keys         | incremental or lazily loaded translations |
-
-```ts
-checkout.full({
-  title: "Checkout",
-  total: ({ amount }, lz) => lz.formatNumber(amount),
-}); // OK
-checkout.full({ title: "Checkout" }); // ✗ compile error: `total` is missing
-checkout.partial({ title: "Checkout" }); // OK: subset allowed
-```
-
-### Static and dynamic translations
-
-Use the exported `Translation` alias to declare a namespace's shape:
-
-- `Translation` resolves to `string` — a **static** translation.
-- `Translation<{ … }>` resolves to a function `(params, localizer) => string` — a **dynamic** translation.
-
-```ts
-const ns = createNamespace<{
-  ok: Translation; // static
-  greet: Translation<{ name: string }>; // dynamic
-  cartTotal: Translation<{ items: number; sum: number }>;
-}>({ key: "ns" });
-```
-
-A dynamic translation is just a function. It receives its typed parameters as the first argument and a `Localizer` (bound to the resolved locale) as the second, so it can format numbers and dates and even read other keys:
-
-```ts
-ns.full({
-  ok: "OK",
-  greet: ({ name }) => `Hello, ${name}!`,
-  cartTotal: ({ items, sum }, lz) =>
-    `${lz.formatNumber(items)} items — ${lz.formatNumber(sum, { style: "currency", currency: "EUR" })}`,
-});
-```
-
-> The second parameter is typed as js-lingo's `Localizer`. You never need to name it — let TypeScript infer it, as in `({ name }, lz) => …`. This is also why dynamic translations must be declared with `Translation<T>` rather than a hand-written function type.
-
-### Text bundles
-
-A **text bundle** maps locales to lists of namespace texts. `bundleTexts` is a typed identity helper — it returns its argument unchanged, but gives you inference and a stable `TextBundle` type for sharing bundles across modules:
-
-```ts
-export const checkoutTexts = bundleTexts({
-  en: [checkout.partial({ title: "Checkout" })],
-  de: [checkout.partial({ title: "Kasse" })],
-});
-```
-
-Bundles are registered with `addTexts`, which is variadic and additive — later writes win on a per-key basis:
-
-```ts
-getI18n().addTexts(commonTexts, checkoutTexts);
-```
-
-Locale keys are normalized (via `Intl.Locale().baseName`) before merging, so `"EN-US"` and `"en-us"` land in the same bucket.
-
-### The Localizer (the read side)
-
-Calling `i18n.locale(tag)` returns a **`Localizer`** — the read-only surface bound to one active locale. Localizers are memoized per distinct locale string on each instance.
-
-```ts
-const l = getI18n().locale("de-DE");
-
-l.getText(ns, "ok"); // resolve a static key
-l.getText(ns, "greet", { name: "Mara" }); // resolve a dynamic key
-l.formatNumber(1234.5); // "1.234,5"
-l.formatDateTime(new Date()); // locale-formatted date/time
-l.locale("en-US"); // a sibling Localizer for another locale
-```
-
----
-
-## Type safety
-
-The `getText` signature is overloaded so the compiler knows, per key, whether parameters are allowed and what their shape must be:
-
-```ts
-const l = getI18n().locale("en");
-
-l.getText(ns, "ok"); // ✓ static key, no params
-l.getText(ns, "greet", { name: "Ada" }); // ✓ dynamic key, correct params
-
-l.getText(ns, "ok", { name: "Ada" }); // ✗ static key takes no params
-l.getText(ns, "greet"); // ✗ dynamic key requires params
-l.getText(ns, "greet", { name: 42 }); // ✗ wrong param type
-l.getText(ns, "nope"); // ✗ unknown key
-```
-
-The same checking applies when authoring: `full` demands a complete key set, `partial` permits a subset, and every value is checked against its declared `Translation` shape.
-
----
-
-## Locale resolution and fallback
-
-When you ask for a key, js-lingo builds an ordered, de-duplicated **resolution chain** and returns the first match. The chain is:
-
-1. The requested locale's own tag chain, **most → least specific**.
-2. Then each configured fallback locale's tag chain, in order.
-
-Within a single tag, the chain expands the canonical tag, then `language-region`, then the bare `language` — so a region-specific translation is preferred over a generic one:
-
-| Requested    | Tag chain                     |
-| ------------ | ----------------------------- |
-| `de-CH`      | `de-CH` → `de`                |
-| `en-US`      | `en-US` → `en`                |
-| `zh-Hant-TW` | `zh-Hant-TW` → `zh-TW` → `zh` |
-
-With `getFallbackLocales: () => ["en"]` configured, a request for `de` that misses every `de*` tag continues into the `en` chain:
+**Apps** collect bundles into a source — or replace the source entirely:
 
 ```ts
 const i18n = createI18n({
-  getPrimaryLocale: () => "de",
-  getFallbackLocales: () => ["en"],
+  textSource: defaultTextSource({
+    textBundles: [
+      datePickerGerman, // available immediately
+      fetchTenantTexts(), // a promise — registers when it settles
+      () => import("./locales/fr.js").then((m) => m.french), // a thunk — loaded on first use
+    ],
+    fallbackLocales: ["en"],
+  }),
 });
-
-i18n.addTexts(bundleTexts({ en: [ns.partial({ ok: "OK" })] }));
-
-i18n.locale("de").getText(ns, "ok"); // "OK" — resolved from the English fallback
 ```
 
-A few rules worth knowing:
+While an async bundle is in flight, the namespace defaults show; when it lands, the
+instance's `onChange` fires and subscribed hosts re-render. Nothing is ever broken,
+only briefly untranslated.
 
-- **Missing keys never throw.** If nothing in the chain matches, `getText` returns the **key string itself**, which makes missing translations visible without crashing the UI.
-- **A dynamic value resolved via fallback** is invoked with a `Localizer` for the locale it was _found_ in, so its `formatNumber`/`formatDateTime` calls match the language of the text.
-- **Fallback tags are expanded too** — a fallback of `en-GB` also matches `en`.
-- **Invalid tags:** an invalid _requested_ locale throws (it's a programming error at the call site); an invalid _fallback_ tag is skipped so one bad entry can't break resolution.
+## The facade at a glance
 
----
-
-## The global instance and its lifecycle
-
-`getI18n()` returns a lazily-created, module-level **singleton**. Its configuration is supplied once via `initI18n` and resolved lazily, the first time any locale method is used.
+`createI18n` returns the _dynamic_ instance — its locale follows the `localeSource`.
+`i18n.localize("de")` returns a memoized sibling statically bound to `de`, sharing the
+same pipeline, caches, and change channel; `sibling.localize()` leads back to the
+dynamic instance.
 
 ```ts
-initI18n({ getPrimaryLocale: () => "de", getFallbackLocales: () => ["en"] });
-getI18n().addTexts(commonTexts);
-getI18n().locale("de").getText(common, "greeting");
+i18n.getLocale(); // active locale
+i18n.onChange(() => rerender()); // fires on locale AND text changes
+const t = i18n.bindTexts(datePickerTexts);
+t("today"); // scoped shorthand
+t(otherTexts, "someKey"); // fully-qualified escape hatch
 ```
 
-**Lifecycle rules**
+Miss policy is owned by the facade: a resolver returns a string (the empty string is
+a valid translation!) or `undefined` for "miss". Because defaults live on the
+namespace, a bare key can only ever appear for keys that have no default — which the
+`getText` overloads already rule out at compile time.
 
-- `initI18n` may be called **at most once**. A second call throws.
-- `initI18n` must run **before the global instance is first used** (before the first `locale()`, `getPrimaryLocale()`, etc.). Calling it too late throws `"Too late to call function 'initI18n'…"`.
-- **`getI18n().addTexts(...)` may be called before `initI18n`.** Translations registered early are remembered and resolve normally after init — so modules can register their texts at import time, regardless of where app startup calls `initI18n`.
-- **Constructing a `localize` controller does not force initialization**, so a controller created in a class field (which can run before app startup) will not lock out a later `initI18n`.
+## Locale sources
 
-**Client-side default locale source**
-
-In a browser, if you do not supply `getPrimaryLocale` / `onLocaleChange`, the global instance installs a `<html lang>` monitor automatically: `getPrimaryLocale()` reads the live `lang` attribute, and `onLocaleChange` fires via a `MutationObserver` whenever it changes.
+The default locale source watches `<html lang>` on the client (live, via
+MutationObserver). Where there is no DOM, you tell it what to do instead:
 
 ```ts
-// Browser, no explicit locale source configured:
-document.documentElement.lang = "fr";
-getI18n().getPrimaryLocale(); // "fr"
-// Later, changing <html lang> notifies onLocaleChange listeners.
+createI18n({
+  localeSource: defaultLocaleSource({
+    serverSide: () => requestContext.getStore()?.locale ?? "en-US", // per-request
+    defaultLocale: "en-US",
+  }),
+});
 ```
 
-A partial config still benefits from this: if you supply only `getFallbackLocales`, the `<html lang>` monitor still provides the primary locale and the change source.
+`serverSide` accepts a fixed tag (static builds), a getter (per-request, e.g. via
+`AsyncLocalStorage`), or a full `LocaleSource` with its own change channel. Any other
+behavior — language negotiation, user preferences, query parameters — is a
+`LocaleSource` you write yourself: it is just `{ getLocale, onChange? }`.
 
----
+Note the separation this enforces: **fallback never changes where the user _is_** —
+if a German translation is missing and English text substitutes, dates and numbers
+still format German. Cross-language fallback is a _text_ concern, not a _locale_
+concern.
 
-## Standalone instances
+## Text sources, combinators, adapters
 
-`createI18n(config)` builds an independent instance with its own dictionary. Unlike the global instance it initializes **eagerly** at construction, which makes it the right choice when you need isolation — most importantly **server-side rendering**, where a module-level singleton would leak one request's locale into another.
+A text source is `{ resolve, onChange? }` where `resolve` returns a string or
+`undefined`. That is the entire integration contract. An i18next adapter, sketched:
 
 ```ts
-function handleRequest(acceptLanguage: string) {
-  const i18n = createI18n({
-    getPrimaryLocale: () => pickLocale(acceptLanguage),
-    getFallbackLocales: () => ["en"],
-  });
-  i18n.addTexts(commonTexts);
-  return renderWith(i18n);
-}
+const i18n = createI18n({
+  localeSource: {
+    getLocale: () => i18next.language,
+    onChange: (listener) => {
+      i18next.on("languageChanged", listener);
+      return () => i18next.off("languageChanged", listener);
+    },
+  },
+  textSource: {
+    resolve: ({ locale, namespace, key, params }) =>
+      i18next.exists(`${namespace.key}:${key}`, { lng: locale })
+        ? i18next.t(`${namespace.key}:${key}`, { lng: locale, ...(params as object) })
+        : undefined, // real miss detection — falls through to the namespace defaults
+    onChange: (listener) => {
+      i18next.store.on("added", listener); // async resources -> re-render
+      return () => i18next.store.off("added", listener);
+    },
+  },
+});
 ```
 
-Standalone instances expose the same `I18n` surface as the global one.
+Sources compose. `withFallbackLocales(source, ["en", "fr"])` wraps _any_ source with a
+cross-language fallback chain: the requested locale is tried first, then each
+fallback; the found candidate travels on as `request.locale`, so dynamic translations
+format with the locale they were actually found in. The chain is exhausted before
+namespace defaults apply. (`defaultTextSource` uses this combinator internally for
+its `fallbackLocales` option.)
 
----
+## Middlewares
 
-## Reactive UI integration
-
-`localize(host, i18n?)` returns a reactive controller that is **also a `Localizer`**. It binds to a host that implements `requestUpdate()` and `addController()` — most notably a Lit `ReactiveControllerHost`, but any object with those two methods works.
+Middlewares decorate the whole pipeline — they see texts from any source _and_ from
+namespace defaults, including nested lookups made by translation functions:
 
 ```ts
-import { LitElement, html } from "lit";
-import { customElement } from "lit/decorators.js";
-import { localize } from "js-lingo";
-import { common } from "./namespaces";
+createI18n({
+  textSource,
+  middlewares: [
+    // pseudo-localization for UI testing
+    (request, context, next) => (pseudo ? toPseudo(next()) : next()),
+    // hard-miss reporting (`undefined` = neither source nor defaults had the key)
+    (request, context, next) => {
+      const resolved = next();
+      if (resolved === undefined) report(request);
+      return resolved;
+    },
+    // request rewriting
+    (request, context, next) => next(request.locale === "nb" ? { locale: "no" } : undefined),
+  ],
+});
+```
 
-@customElement("greeting-label")
-export class GreetingLabel extends LitElement {
-  readonly #loc = localize(this);
+Rule of thumb for the two decoration layers: middlewares wrap the _pipeline_
+(everything, uniformly), source combinators wrap _one source_ (and see its misses
+directly — the right place for "translated vs. defaulted" coverage reporting).
+
+## Custom elements (Lit-friendly, Lit-free)
+
+The companion module distributes instances to web components via the
+[Context Community Protocol](https://github.com/webcomponents-cg/community-protocols/blob/main/proposals/context.md) —
+dependency-free, interoperable with any protocol-compliant counterpart such as
+`@lit/context` (consumers and providers only share the `context-request` event and
+the exported `i18nContext` key).
+
+Inside a component, the reactive controller _is_ an `I18n` and re-renders its host on
+locale or text changes:
+
+```ts
+class FancyDatePicker extends LitElement {
+  private i18n = i18nController(this);
 
   render() {
-    return html`
-      <p>${this.#loc.getText(common, "greeting")}</p>
-      <p>${this.#loc.getText(common, "itemCount", { count: 1234 })}</p>
-    `;
+    return html`<button>${this.i18n.getText(datePickerTexts, "today")}</button>`;
   }
 }
 ```
 
-The controller:
+It resolves its instance in three stages — explicit argument, then a provider up the
+tree, then an internal zero-config fallback — so the component works in every app,
+provider or not.
 
-- resolves its locale **lazily** (it reads the locale on connect or on first use, not at construction);
-- on `hostConnected`, subscribes to the bound instance's locale changes and triggers exactly one `requestUpdate`;
-- on each locale change, refreshes its active locale and calls `host.requestUpdate()`, re-rendering with the new language;
-- on `hostDisconnected`, unsubscribes (and is safe to call when never connected or called twice).
+The app provides its instance declaratively or imperatively:
 
-You can bind a controller to a specific instance by passing it explicitly: `localize(this, myInstance)`. Omitting it binds to the global instance.
-
----
-
-## Formatting numbers and dates
-
-Every `Localizer` exposes `Intl`-backed formatting bound to its active locale:
-
-```ts
-const l = getI18n().locale("de-DE");
-
-l.formatNumber(1234567.89); // "1.234.567,89"
-l.formatNumber(0.42, { style: "percent" }); // "42 %"
-l.numberFormat({ style: "currency", currency: "EUR" }); // a reusable Intl.NumberFormat
-
-l.formatDateTime(new Date(), { dateStyle: "long" }); // "1. Juni 2026"
-l.dateTimeFormat({ timeStyle: "short", timeZone: "UTC" }); // a reusable Intl.DateTimeFormat
+```html
+<i18n-provider .i18n="${appI18n}">
+  <fancy-date-picker></fancy-date-picker>
+</i18n-provider>
 ```
 
-Use the `formatX` helpers for one-off formatting, and the `numberFormat` / `dateTimeFormat` factories when you want to reuse a configured formatter across many values.
-
----
-
-## Configuration reference
-
-Both `createI18n(config)` and `initI18n(config)` accept the same shape. Every field is optional.
-
-| Field                | Type                               | Purpose                                                                                                                     |
-| -------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `getPrimaryLocale`   | `() => Locale`                     | The active locale. Defaults to `"en-US"` if omitted (and, on the client global instance, to the `<html lang>` monitor).     |
-| `getFallbackLocales` | `() => Locale[]`                   | Cross-language fallbacks appended to the resolution chain.                                                                  |
-| `onLocaleChange`     | `(listener) => Unsubscribe`        | The locale-change source. The instance subscribes once and fans out to `onLocaleChange` listeners / `localize` controllers. |
-| `onAddTexts`         | `(locale, namespace, key) => void` | Invoked once per key registered through `addTexts`. Useful for telemetry, coverage tracking, or warming caches.             |
-
-`onAddTexts` notifications behave according to the instance's initialization:
-
-- **Standalone instances** (eager) notify immediately as `addTexts` runs.
-- **The global instance** buffers notifications from any `addTexts` calls made before `initI18n`, then replays them in registration order once the config is resolved; later calls notify directly.
-
----
-
-## API reference
-
-### Functions
-
-| Function          | Signature                                                              | Description                                           |
-| ----------------- | ---------------------------------------------------------------------- | ----------------------------------------------------- |
-| `createNamespace` | `<T>(params: { key: string; group?: string \| null }) => Namespace<T>` | Define a typed namespace handle.                      |
-| `bundleTexts`     | `<T extends TextBundle>(texts: T) => TextBundle`                       | Typed identity helper for authoring bundles.          |
-| `createI18n`      | `(config?: I18nConfig) => I18n`                                        | Create a standalone, eagerly-initialized instance.    |
-| `getI18n`         | `() => I18n`                                                           | Get the lazily-created global singleton.              |
-| `initI18n`        | `(config: I18nConfig) => void`                                         | Configure the global instance once, before first use. |
-| `localize`        | `(host, i18n?) => LocalizeController & Localizer`                      | Reactive controller bound to a UI host.               |
-
-### `I18n` (instance)
-
-| Method                     | Description                                                            |
-| -------------------------- | ---------------------------------------------------------------------- |
-| `addTexts(...bundles)`     | Register one or more text bundles (additive; last write wins per key). |
-| `locale(tag)`              | Return a `Localizer` bound to `tag`.                                   |
-| `getPrimaryLocale()`       | The current primary locale.                                            |
-| `getFallbackLocales()`     | A copy of the configured fallback locales (or `[]`).                   |
-| `onLocaleChange(listener)` | Subscribe to locale changes; returns an idempotent `Unsubscribe`.      |
-
-### `Localizer` (read side)
-
-| Method                            | Description                                                    |
-| --------------------------------- | -------------------------------------------------------------- |
-| `getText(ns, key)`                | Resolve a **static** key.                                      |
-| `getText(ns, key, params)`        | Resolve a **dynamic** key with typed params.                   |
-| `formatNumber(value, options?)`   | Locale-formatted number.                                       |
-| `numberFormat(options?)`          | A reusable `Intl.NumberFormat`.                                |
-| `formatDateTime(value, options?)` | Locale-formatted date/time.                                    |
-| `dateTimeFormat(options?)`        | A reusable `Intl.DateTimeFormat`.                              |
-| `locale(tag)`                     | A sibling `Localizer` for another locale on the same instance. |
-
-### Exported types
-
-`Locale`, `TextKey`, `NamespaceKey`, `Unsubscribe`, `Translation`, `TextMap`, `Namespace`, `NamespaceTexts`, `TextBundle`, `LocalizeController`, `LocalizeControllerHost`.
-
----
-
-## Patterns and recipes
-
-**Register translations at the point of use (code splitting).** Because `addTexts` is additive and may run before `initI18n`, a feature module can ship and register its own bundle on import:
-
 ```ts
-// feature/checkout/texts.ts
-import { getI18n } from "js-lingo";
-import { checkoutTexts } from "./bundles";
-getI18n().addTexts(checkoutTexts);
+provideI18n(document.body, appI18n); // app-wide
 ```
 
-**Lazy-load a locale.** Fetch a locale's bundle on demand and merge it in:
+Late providers are handled gracefully: a value-less `<i18n-provider>` does not claim
+requests (an outer provider may serve meanwhile) but remembers subscribers and
+answers as soon as its value arrives — consumers keep the latest answer.
+
+## Server-side rendering
+
+The core has no DOM dependency. Instances are cheap; the module-global `Intl`
+formatter cache and your text sources are shared across them, so per-request
+instances are a natural fit:
 
 ```ts
-async function loadLocale(locale: string) {
-  const mod = await import(`./locales/${locale}.ts`);
-  getI18n().addTexts(mod.default);
-}
-```
-
-**Custom locale source.** Drive the locale from a store, a cookie, or a router instead of `<html lang>`:
-
-```ts
-initI18n({
-  getPrimaryLocale: () => store.getState().locale,
-  onLocaleChange: (listener) => store.subscribe(listener),
+const i18nForRequest = createI18n({
+  localeSource: { getLocale: () => request.locale },
+  textSource: sharedTextSource,
 });
 ```
 
-**Track translation registration.** Use `onAddTexts` to detect coverage gaps or log additions:
+Alternatively, keep one shared instance and use `defaultLocaleSource({ serverSide })`
+with an `AsyncLocalStorage`-backed getter. The custom-element module also imports
+cleanly without a DOM (element registration is skipped).
+
+## Type safety
+
+The namespace defaults are the single source of truth. From them, the compiler
+derives everything:
 
 ```ts
-const seen = new Set<string>();
-createI18n({
-  onAddTexts: (locale, ns, key) => seen.add(`${locale}:${ns.key}:${key}`),
-});
+i18n.getText(datePickerTexts, "today"); // ok — static key, no params
+i18n.getText(datePickerTexts, "today", { x: 1 }); // error — static keys take no params
+i18n.getText(datePickerTexts, "dateRange"); // error — params required
+i18n.getText(datePickerTexts, "dateRange", { from: 1 }); // error — wrong param shape
+i18n.getText(datePickerTexts, "tdoay"); // error — unknown key
+texts(datePickerTexts, { today: "Heute" }); // ok — partial by design
+allTexts(datePickerTexts, { today: "Heute" }); // error — completeness required
 ```
 
----
+No codegen, no message DSL, no string parsing: translations are plain strings and
+plain functions.
 
-## Behavior notes and gotchas
+## Design principles
 
-- **Missing keys return the key string** rather than throwing. Treat the key text appearing in your UI as a signal of a missing translation.
-- **Server-side, the singleton is shared.** On a server, prefer a per-request `createI18n` instance over the global one to avoid leaking a locale between requests.
-- **The resolution chain is rebuilt per `getText` call.** This is inexpensive for normal use; if you resolve keys in a tight hot loop, cache the `Localizer` and consider memoizing.
-- **The config locale-change subscription is established once and not torn down.** Instances are expected to be long-lived (a singleton or a per-request object), so this is intentional rather than a leak.
-- **`Localizer`** Author dynamic translations with `Translation<T>` and let the second parameter's type be inferred.
+- **The config contains strategies and middlewares — nothing else.** It neither
+  knows nor privileges any concrete implementation; the built-in source and locale
+  monitor plug into the same slots an adapter would.
+- **No configurable global state.** The only module-level state is a deterministic
+  `Intl` formatter cache and an immutable zero-config fallback instance.
+- **Defaults make components self-sufficient.** A component library needs no app
+  cooperation to function, and no registration step for its source language.
+- **Found-locale formatting.** A translation found via fallback formats with the
+  locale it was found in; the user's locale governs everything else.
+- **Pure data at the boundaries.** Namespaces, bundles, and requests are frozen
+  values; behavior lives in the facade, sources, and combinators around them.
 
----
+## Development
 
-## Testing
-
-js-lingo is plain TypeScript with no globals beyond `Intl` and the optional DOM monitor, so it tests cleanly with any runner. For the `<html lang>` monitor and the module-level singleton, a DOM environment plus fresh module imports work well:
-
-```ts
-// @vitest-environment jsdom
-import { vi } from "vitest";
-
-async function freshModule() {
-  vi.resetModules();
-  return import("js-lingo"); // fresh global state per test
-}
+```sh
+npm test               # vitest, node + jsdom environments
+npm test -- --coverage # enforced thresholds; currently at 100 % on both modules
 ```
-
-Standalone behavior (resolution, fallback, formatting, `onAddTexts`) can be tested directly through `createI18n` without any DOM.
-
----
-
-## Design philosophy
-
-- **Translations are values, not a language.** If TypeScript can already express and check it, there is no reason to invent a parallel message format.
-- **The type system is the schema.** Keys, parameter presence, and parameter types are enforced at the call site, with no generated artifacts to drift out of date.
-- **Lean on the platform.** Locale parsing and number/date formatting come from `Intl`; js-lingo adds structure, typing, and resolution, not its own formatters.
-- **Predictable resolution.** A single, ordered, de-duplicated chain decides every lookup, and a miss degrades gracefully to the key.
-
----
 
 ## License
 
-MIT — see `LICENSE`.
+MIT

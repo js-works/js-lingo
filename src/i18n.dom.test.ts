@@ -1,0 +1,84 @@
+// @vitest-environment jsdom
+/**
+ * Tests for the client-side branches: `defaultLocaleSource` detecting the DOM and the
+ * `<html lang>` monitor (MutationObserver-driven change channel).
+ */
+
+import { describe, expect, it, vi } from "vitest";
+
+import { createI18n, createNamespace, defaultLocaleSource } from "./i18n.js";
+
+const greetingTexts = createNamespace({ key: "greeting", defaults: { hello: "Hello" } });
+
+/** MutationObserver delivers asynchronously — wait one macrotask. */
+const tick = () => new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
+
+function setDocumentLang(lang: string | null): void {
+  if (lang === null) {
+    document.documentElement.removeAttribute("lang");
+  } else {
+    document.documentElement.setAttribute("lang", lang);
+  }
+}
+
+describe("defaultLocaleSource (client, <html lang> monitor)", () => {
+  it("reads the live lang attribute", () => {
+    setDocumentLang("de-CH");
+    const i18n = createI18n({ localeSource: defaultLocaleSource() });
+    expect(i18n.getLocale()).toBe("de-CH");
+    setDocumentLang("fr");
+    expect(i18n.getLocale()).toBe("fr");
+  });
+
+  it("falls back to defaultLocale when the attribute is absent (and ignores serverSide)", () => {
+    setDocumentLang(null);
+    const i18n = createI18n({
+      localeSource: defaultLocaleSource({ defaultLocale: "ja", serverSide: "de" }),
+    });
+    expect(i18n.getLocale()).toBe("ja"); // serverSide plays no role on the client
+    expect(createI18n({ localeSource: defaultLocaleSource() }).getLocale()).toBe("en-US");
+  });
+
+  it("is the zero-config default on the client", () => {
+    setDocumentLang("it");
+    const i18n = createI18n();
+    expect(i18n.getLocale()).toBe("it");
+    expect(i18n.getText(greetingTexts, "hello")).toBe("Hello");
+  });
+
+  it("notifies on lang changes and honors unsubscribe", async () => {
+    setDocumentLang("de");
+    const i18n = createI18n({ localeSource: defaultLocaleSource() });
+
+    const keptChanges = vi.fn();
+    const removedChanges = vi.fn();
+    i18n.onChange(keptChanges);
+    const unsubscribe = i18n.onChange(removedChanges);
+    unsubscribe();
+
+    setDocumentLang("en");
+    await tick();
+    expect(keptChanges).toHaveBeenCalledTimes(1);
+    expect(removedChanges).not.toHaveBeenCalled();
+    expect(i18n.getLocale()).toBe("en");
+
+    setDocumentLang("fr");
+    await tick();
+    expect(keptChanges).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports multiple independent monitor subscriptions (source-level unsubscribe)", async () => {
+    setDocumentLang("de");
+    const localeSource = defaultLocaleSource();
+    const firstListener = vi.fn();
+    const secondListener = vi.fn();
+    localeSource.onChange!(firstListener);
+    const unsubscribeSecond = localeSource.onChange!(secondListener);
+    unsubscribeSecond();
+
+    setDocumentLang("en");
+    await tick();
+    expect(firstListener).toHaveBeenCalledTimes(1);
+    expect(secondListener).not.toHaveBeenCalled();
+  });
+});
