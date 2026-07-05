@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./message-format": {
+      "types": "./dist/message-format/index.d.ts",
+      "import": "./dist/message-format/index.js"
+    },
     "./web-components": {
       "types": "./dist/web-components/index.d.ts",
       "import": "./dist/web-components/index.js"

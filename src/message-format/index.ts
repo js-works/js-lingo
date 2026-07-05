@@ -1,9 +1,11 @@
 import IntlMessageFormat from "intl-messageformat";
 import type { TranslationFn } from "js-lingo";
 
+export { msg };
+
 const cache = new Map<string, IntlMessageFormat>();
 
-export function msg<P extends Record<string, unknown>>(
+function msg<P extends Record<string, unknown>>(
   strings: TemplateStringsArray,
   ...expr: never[] // ICU-Syntax steht IM String, nicht in ${}-Interpolationen
 ): TranslationFn<P> {
