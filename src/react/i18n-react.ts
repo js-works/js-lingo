@@ -17,21 +17,24 @@
  * instance is reference-stable and would otherwise make useSyncExternalStore bail
  * out. The statically-bound snapshot also guarantees a consistent locale across one
  * render pass (tearing-safe under concurrent rendering).
+ *
+ * JSX-free on purpose (uses `createElement as h`), so this file is a plain `.ts`.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { ReactNode } from "react";
+import {
+  createContext,
+  createElement as h,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 
+import type { ReactNode } from "react";
 import { createI18n } from "../index.js";
 import { provideI18n } from "../web-components/index.js";
-import type {
-  I18n,
-  Namespace,
-  TextKeysWithoutParams,
-  TextKeysWithParams,
-  TextMap,
-  TranslationParams,
-} from "../index.js";
+import type { BoundTexts, I18n, Namespace, TextMap, UnboundTexts } from "../index.js";
 
 export { I18nProvider, useI18n };
 
@@ -60,7 +63,12 @@ function I18nProvider({ i18n, children }: { i18n: I18n; children: ReactNode }) {
 
   // Bridge to the DOM/context protocol for custom elements in the subtree.
   useEffect(() => (ref.current ? provideI18n(ref.current, i18n) : undefined), [i18n]);
-  return { children };
+
+  return h(
+    I18nContext.Provider,
+    { value: i18n },
+    h("div", { ref, style: { display: "contents" } }, children),
+  );
 }
 
 // -------------------------------------------------------------------
@@ -75,7 +83,7 @@ function I18nProvider({ i18n, children }: { i18n: I18n; children: ReactNode }) {
  *
  * Re-renders the component on locale and text changes.
  */
-function useI18n(): { i18n: I18n; t: ReturnType<I18n["bindTexts"]> };
+function useI18n(): { i18n: I18n; t: UnboundTexts };
 function useI18n<T extends TextMap>(namespace: Namespace<T>): { i18n: I18n; t: BoundTexts<T> };
 function useI18n(namespace?: Namespace<any>): { i18n: I18n; t: (...args: any[]) => string } {
   const source = useContext(I18nContext);

@@ -88,6 +88,7 @@ export {
 };
 
 export type {
+  BoundTexts,
   DefaultTextSourceOptions,
   I18n,
   I18nConfig,
@@ -108,6 +109,7 @@ export type {
   TextsOf,
   Translation,
   TranslationFn,
+  UnboundTexts,
   Unsubscribe,
 };
 
@@ -175,6 +177,30 @@ type TextKeysWithParams<T extends Record<string, unknown>> = {
 
 type TextKeysWithoutParams<T extends TextMap> = Exclude<keyof T, TextKeysWithParams<T>>;
 
+// The result of `bindTexts()` (no namespace): a fully-qualified lookup, exactly like
+// `getText`. Static keys take no params; dynamic keys require their typed params.
+type UnboundTexts = {
+  <T extends TextMap, K extends TextKeysWithoutParams<T>>(namespace: Namespace<T>, key: K): string;
+  <T extends TextMap, K extends TextKeysWithParams<T>>(
+    namespace: Namespace<T>,
+    key: K,
+    params: TranslationParams<T[K]>,
+  ): string;
+};
+
+// The result of `bindTexts(namespace)`: scoped to T — call `t(key[, params])` — while
+// still accepting a fully-qualified `t(otherNamespace, key[, params])` for any other.
+type BoundTexts<T extends TextMap> = {
+  <K extends TextKeysWithoutParams<T>>(key: K): string;
+  <K extends TextKeysWithParams<T>>(key: K, params: TranslationParams<T[K]>): string;
+  <U extends TextMap, K extends TextKeysWithoutParams<U>>(namespace: Namespace<U>, key: K): string;
+  <U extends TextMap, K extends TextKeysWithParams<U>>(
+    namespace: Namespace<U>,
+    key: K,
+    params: TranslationParams<U[K]>,
+  ): string;
+};
+
 // # Strategy 1: locale
 
 // Locale strategy: what locale are we in, and notify me when it changes.
@@ -241,36 +267,12 @@ type I18n = Readonly<{
     params: TranslationParams<T[K]>,
   ): string;
 
-  // Return a standalone getText function. With no namespace it is exactly `getText`.
-  // With a namespace it is scoped to it — call `t(key[, params])` — while still
-  // accepting a fully-qualified `t(namespace, key[, params])` for any other namespace.
-  bindTexts(): {
-    <T extends TextMap, K extends TextKeysWithoutParams<T>>(
-      namespace: Namespace<T>,
-      key: K,
-    ): string;
-    <T extends TextMap, K extends TextKeysWithParams<T>>(
-      namespace: Namespace<T>,
-      key: K,
-      params: TranslationParams<T[K]>,
-    ): string;
-  };
-
-  bindTexts<T extends TextMap>(
-    namespace: Namespace<T>,
-  ): {
-    <K extends TextKeysWithoutParams<T>>(key: K): string;
-    <K extends TextKeysWithParams<T>>(key: K, params: TranslationParams<T[K]>): string;
-    <U extends TextMap, K extends TextKeysWithoutParams<U>>(
-      namespace: Namespace<U>,
-      key: K,
-    ): string;
-    <U extends TextMap, K extends TextKeysWithParams<U>>(
-      namespace: Namespace<U>,
-      key: K,
-      params: TranslationParams<U[K]>,
-    ): string;
-  };
+  // Return a standalone getText function. With no namespace it is exactly `getText`
+  // (`UnboundTexts`). With a namespace it is scoped to it — call `t(key[, params])` —
+  // while still accepting a fully-qualified `t(namespace, key[, params])` for any
+  // other namespace (`BoundTexts<T>`).
+  bindTexts(): UnboundTexts;
+  bindTexts<T extends TextMap>(namespace: Namespace<T>): BoundTexts<T>;
 
   // The fixed Intl formatting core — deliberately not configurable. Formatter
   // instances are cached and shared; Intl formatters are effectively immutable.
