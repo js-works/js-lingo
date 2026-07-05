@@ -24,6 +24,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, "src/index.ts"),
+        "msg/index": resolve(__dirname, "src/msg/index.ts"),
         "web-components/index": resolve(__dirname, "src/web-components/index.ts"),
         "react/index": resolve(__dirname, "src/react/index.ts"),
       },
