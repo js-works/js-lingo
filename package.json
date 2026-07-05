@@ -1,30 +1,22 @@
 {
   "name": "js-lingo",
   "version": "0.0.2",
-  "description": "A small I18n library",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.es",
+  "description": "A small, type-safe i18n facade for vanilla JS, web components and React",
+  "type": "module",
+  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.es"
-      },
-      "require": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./web-components": {
-      "import": {
-        "types": "./dist/web-components/index.d.ts",
-        "default": "./dist/web-components/index.es"
-      },
-      "require": {
-        "types": "./dist/web-components/index.d.ts",
-        "default": "./dist/lit/index.cjs"
-      }
+      "types": "./dist/web-components/index.d.ts",
+      "import": "./dist/web-components/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
     }
   },
   "files": [
@@ -47,7 +39,17 @@
     "type": "git",
     "url": "git+https://github.com/js-works/js-lingo.git"
   },
-  "keywords": [],
+  "keywords": [
+    "i18n",
+    "internationalization",
+    "localization",
+    "l10n",
+    "intl",
+    "typescript",
+    "web-components",
+    "custom-elements",
+    "react"
+  ],
   "author": "",
   "license": "MIT",
   "bugs": {
@@ -63,6 +65,7 @@
     "archiver": "7.0.1",
     "esbuild": "0.28.1",
     "jsdom": "29.1.1",
+    "react": "^19.2.0",
     "sloc": "0.3.2",
     "typescript": "6.0.3",
     "vite": "8.0.16",
