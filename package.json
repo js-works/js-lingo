@@ -9,16 +9,29 @@
     ".": {
       "import": {
         "types": "./dist/index.d.ts",
-         "default": "./dist/index.es"  
+        "default": "./dist/index.es"
       },
       "require": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./web-components": {
+      "import": {
+        "types": "./dist/web-components/index.d.ts",
+        "default": "./dist/web-components/index.es"
+      },
+      "require": {
+        "types": "./dist/web-components/index.d.ts",
+        "default": "./dist/lit/index.cjs"
+      }
     }
   },
   "files": [
     "dist"
+  ],
+  "sideEffects": [
+    "**/web-components/**"
   ],
   "scripts": {
     "build": "vite build",
@@ -42,8 +55,10 @@
   },
   "homepage": "https://github.com/js-works/js-lingo#readme",
   "devDependencies": {
+    "@microsoft/api-extractor": "7.58.9",
     "@types/archiver": "7.0.0",
     "@types/node": "26.0.0",
+    "@types/react": "^19.2.17",
     "@vitest/coverage-v8": "4.1.9",
     "archiver": "7.0.1",
     "esbuild": "0.28.1",
@@ -53,5 +68,13 @@
     "vite": "8.0.16",
     "vite-plugin-dts": "5.0.2",
     "vitest": "4.1.9"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

@@ -7,13 +7,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  someTexts,
   bundleTexts,
   createI18n,
   createNamespace,
   defaultLocaleSource,
   defaultTextSource,
-  fullTexts,
-  partialTexts,
+  allTexts,
 } from "./i18n.js";
 
 import type { I18n, LocaleSource, TextBundle, TextMiddleware, TextSource } from "./i18n.js";
@@ -75,7 +75,7 @@ afterEach(() => {
 // Namespaces and bundles
 // -------------------------------------------------------------------
 
-describe("createNamespace / texts / fullTexts / bundleTexts", () => {
+describe("createNamespace / texts / allTexts / bundleTexts", () => {
   it("creates a frozen, pure-data namespace with frozen defaults", () => {
     expect(Object.isFrozen(datePickerTexts)).toBe(true);
     expect(Object.isFrozen(datePickerTexts.defaults)).toBe(true);
@@ -90,13 +90,13 @@ describe("createNamespace / texts / fullTexts / bundleTexts", () => {
     expect(copiedTexts.defaults.label).toBe("Label");
   });
 
-  it("texts / fullTexts pair the namespace with the given texts (frozen)", () => {
-    const partial = partialTexts(datePickerTexts, { today: "Heute" });
+  it("texts / allTexts pair the namespace with the given texts (frozen)", () => {
+    const partial = someTexts(datePickerTexts, { today: "Heute" });
     expect(partial.namespace).toBe(datePickerTexts);
     expect(partial.texts).toEqual({ today: "Heute" });
     expect(Object.isFrozen(partial)).toBe(true);
 
-    const complete = fullTexts(datePickerTexts, {
+    const complete = allTexts(datePickerTexts, {
       today: "Heute",
       range: (params) => `${params.count} Tage`,
     });
@@ -104,7 +104,7 @@ describe("createNamespace / texts / fullTexts / bundleTexts", () => {
   });
 
   it("bundleTexts is the identity", () => {
-    const bundle: TextBundle = { de: [partialTexts(greetingTexts, { hello: "Hallo" })] };
+    const bundle: TextBundle = { de: [someTexts(greetingTexts, { hello: "Hallo" })] };
     expect(bundleTexts(bundle)).toBe(bundle);
   });
 });
@@ -166,7 +166,7 @@ describe("resolution", () => {
     const i18n = createFixedLocaleI18n(
       "de-CH",
       defaultTextSource({
-        textBundles: [{ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }],
+        textBundles: [{ de: [someTexts(greetingTexts, { hello: "Hallo" })] }],
       }),
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hallo"); // de-CH -> de
@@ -179,7 +179,7 @@ describe("resolution", () => {
         textBundles: [
           {
             de: [
-              partialTexts(datePickerTexts, {
+              someTexts(datePickerTexts, {
                 range: (params, foundI18n) => `${params.count}:${foundI18n.getLocale()}`,
               }),
             ],
@@ -193,7 +193,7 @@ describe("resolution", () => {
   it("treats the empty string as a valid translation", () => {
     const i18n = createFixedLocaleI18n(
       "de",
-      defaultTextSource({ textBundles: [{ de: [partialTexts(greetingTexts, { hello: "" })] }] }),
+      defaultTextSource({ textBundles: [{ de: [someTexts(greetingTexts, { hello: "" })] }] }),
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("");
   });
@@ -203,7 +203,7 @@ describe("resolution", () => {
       "de",
       defaultTextSource({
         textBundles: [
-          { de: [partialTexts(datePickerTexts, { range: (params) => `${params.count}` })] },
+          { de: [someTexts(datePickerTexts, { range: (params) => `${params.count}` })] },
         ],
       }),
     ).getText as (namespace: unknown, key: unknown, params?: unknown) => string;
@@ -225,8 +225,8 @@ describe("resolution", () => {
       defaultTextSource({
         textBundles: [
           {
-            "de-DE": [partialTexts(greetingTexts, { hello: "Hallo" })],
-            "de-DE-u-co-phonebk": [partialTexts(greetingTexts, { hello: "Hallo!" })], // same baseName
+            "de-DE": [someTexts(greetingTexts, { hello: "Hallo" })],
+            "de-DE-u-co-phonebk": [someTexts(greetingTexts, { hello: "Hallo!" })], // same baseName
           },
         ],
       }),
@@ -238,7 +238,7 @@ describe("resolution", () => {
     const i18n = createFixedLocaleI18n(
       "de",
       defaultTextSource({
-        textBundles: [{ "not a locale!!": [partialTexts(greetingTexts, { hello: "Kaputt" })] }],
+        textBundles: [{ "not a locale!!": [someTexts(greetingTexts, { hello: "Kaputt" })] }],
       }),
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hello"); // unreachable entry, default wins
@@ -248,7 +248,7 @@ describe("resolution", () => {
     const i18n = createFixedLocaleI18n(
       "zh-Hant-TW",
       defaultTextSource({
-        textBundles: [{ "zh-TW": [partialTexts(greetingTexts, { hello: "你好" })] }],
+        textBundles: [{ "zh-TW": [someTexts(greetingTexts, { hello: "你好" })] }],
       }),
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("你好");
@@ -257,7 +257,7 @@ describe("resolution", () => {
   it("handles the language-less 'und' tag (chain without language subtag)", () => {
     const i18n = createFixedLocaleI18n(
       "und",
-      defaultTextSource({ textBundles: [{ und: [partialTexts(greetingTexts, { hello: "…" })] }] }),
+      defaultTextSource({ textBundles: [{ und: [someTexts(greetingTexts, { hello: "…" })] }] }),
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("…");
   });
@@ -266,7 +266,7 @@ describe("resolution", () => {
     const i18n = createFixedLocaleI18n(
       "de",
       defaultTextSource({
-        textBundles: [{ en: [partialTexts(greetingTexts, { hello: "HelloEN" })] }],
+        textBundles: [{ en: [someTexts(greetingTexts, { hello: "HelloEN" })] }],
         fallbackLocales: ["en"],
       }),
     );
@@ -277,7 +277,7 @@ describe("resolution", () => {
     const i18n = createFixedLocaleI18n(
       "not a locale!!",
       defaultTextSource({
-        textBundles: [{ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }],
+        textBundles: [{ de: [someTexts(greetingTexts, { hello: "Hallo" })] }],
       }),
     );
     expect(() => i18n.getText(greetingTexts, "hello")).toThrow();
@@ -309,7 +309,7 @@ describe("middlewares", () => {
     const i18n = createFixedLocaleI18n(
       "de",
       defaultTextSource({
-        textBundles: [{ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }],
+        textBundles: [{ de: [someTexts(greetingTexts, { hello: "Hallo" })] }],
       }),
       [
         (request, _context, next) => {
@@ -330,7 +330,7 @@ describe("middlewares", () => {
   it("can rewrite the request via next(patch)", () => {
     const i18n = createFixedLocaleI18n(
       "nb",
-      defaultTextSource({ textBundles: [{ no: [partialTexts(greetingTexts, { hello: "Hei" })] }] }),
+      defaultTextSource({ textBundles: [{ no: [someTexts(greetingTexts, { hello: "Hei" })] }] }),
       [(request, _context, next) => next(request.locale === "nb" ? { locale: "no" } : undefined)],
     );
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hei");
@@ -372,7 +372,7 @@ describe("defaultTextSource (async inputs)", () => {
     i18n.onChange(changes);
 
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hello"); // default until it lands
-    resolveBundle({ de: [partialTexts(greetingTexts, { hello: "Hallo" })] });
+    resolveBundle({ de: [someTexts(greetingTexts, { hello: "Hallo" })] });
     await tick();
     expect(changes).toHaveBeenCalledTimes(1);
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hallo");
@@ -390,7 +390,7 @@ describe("defaultTextSource (async inputs)", () => {
   });
 
   it("invokes thunks lazily on the first resolution only", () => {
-    const thunk = vi.fn(() => ({ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }));
+    const thunk = vi.fn(() => ({ de: [someTexts(greetingTexts, { hello: "Hallo" })] }));
     const i18n = createFixedLocaleI18n("de", defaultTextSource({ textBundles: [thunk] }));
     expect(thunk).not.toHaveBeenCalled();
     expect(i18n.getText(greetingTexts, "hello")).toBe("Hallo"); // first use triggers the thunk
@@ -400,7 +400,7 @@ describe("defaultTextSource (async inputs)", () => {
 
   it("notifies when a synchronous thunk adds texts", () => {
     const source = defaultTextSource({
-      textBundles: [() => ({ de: [partialTexts(greetingTexts, { hello: "Hallo" })] })],
+      textBundles: [() => ({ de: [someTexts(greetingTexts, { hello: "Hallo" })] })],
     });
     const changes = vi.fn();
     source.onChange!(changes);
@@ -427,7 +427,7 @@ describe("defaultTextSource (async inputs)", () => {
       "de",
       defaultTextSource({
         textBundles: [
-          () => Promise.resolve({ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }),
+          () => Promise.resolve({ de: [someTexts(greetingTexts, { hello: "Hallo" })] }),
         ],
       }),
     );
@@ -530,7 +530,7 @@ describe("I18n facade", () => {
     const i18n = createFixedLocaleI18n(
       "de",
       defaultTextSource({
-        textBundles: [{ de: [partialTexts(greetingTexts, { hello: "Hallo" })] }],
+        textBundles: [{ de: [someTexts(greetingTexts, { hello: "Hallo" })] }],
       }),
     );
     const greetingLookup = i18n.bindTexts(greetingTexts);
