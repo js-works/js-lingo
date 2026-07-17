@@ -92,16 +92,20 @@ function i18nController(host: I18nControllerHost, i18n?: I18n): I18nController {
   const controller: I18nController = {
     // Delegating members — `current` may be swapped by a context provider, so the
     // controller forwards instead of spreading a snapshot.
-    getText: ((namespace: any, key: any, params?: any) =>
-      (current.getText as (ns: any, key: any, params?: any) => string)(
+    text: ((namespace: any, key: any, params?: any) =>
+      (current.text as (ns: any, key: any, params?: any) => string)(
         namespace,
         key,
         params,
-      )) as I18n["getText"],
+      )) as I18n["text"],
     bindTexts: ((namespace?: any) => {
       // Bind lazily through `current` so a later instance switch is honored.
       const lookup = (ns: any, key: any, params?: any): string =>
-        (current.getText as (ns: any, key: any, params?: any) => string)(ns, key, params);
+        (current.text as (ns: any, key: any, params?: any) => string)(
+          ns,
+          key,
+          params,
+        );
       return (first: unknown, second?: unknown, third?: unknown): string =>
         namespace && typeof first === "string"
           ? lookup(namespace, first, second)
@@ -111,7 +115,7 @@ function i18nController(host: I18nControllerHost, i18n?: I18n): I18nController {
     numberFormat: (options) => current.numberFormat(options),
     formatDateTime: (value, options) => current.formatDateTime(value, options),
     dateTimeFormat: (options) => current.dateTimeFormat(options),
-    getLocale: () => current.getLocale(),
+    locale: () => current.locale(),
     onChange: (listener) => current.onChange(listener),
     localize: (locale?) => current.localize(locale),
 
