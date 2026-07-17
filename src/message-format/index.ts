@@ -11,12 +11,15 @@ function msg<P extends Record<string, unknown>>(
 ): TranslationFn<P> {
   const pattern = strings.raw.join(""); // ein einziger statischer String
   return (params, i18n) => {
-    const key = `${i18n.getLocale()}\u0001${pattern}`;
+    const locale = i18n.locale();
+    const key = `${locale}\u0001${pattern}`;
     let fmt = cache.get(key);
+
     if (!fmt) {
-      fmt = new IntlMessageFormat(pattern, i18n.getLocale());
+      fmt = new IntlMessageFormat(pattern, locale);
       cache.set(key, fmt);
     }
+
     return String(fmt.format(params));
   };
 }

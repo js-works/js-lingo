@@ -111,10 +111,20 @@ function i18nController(host: I18nControllerHost, i18n?: I18n): I18nController {
           ? lookup(namespace, first, second)
           : lookup(first, second, third);
     }) as I18n["bindTexts"],
+    hasText: ((namespace: any, key: any, includeFallback?: boolean) =>
+      current.hasText(namespace, key, includeFallback)) as I18n["hasText"],
     formatNumber: (value, options?) => current.formatNumber(value, options),
+    formatNumberRange: (start, end, options?) => current.formatNumberRange(start, end, options),
     numberFormat: (options) => current.numberFormat(options),
     formatDateTime: (value, options) => current.formatDateTime(value, options),
+    formatDateTimeRange: (start, end, options?) =>
+      current.formatDateTimeRange(start, end, options),
     dateTimeFormat: (options) => current.dateTimeFormat(options),
+    formatRelativeTime: (value, unit, options?) =>
+      current.formatRelativeTime(value, unit, options),
+    relativeTimeFormat: (options) => current.relativeTimeFormat(options),
+    formatList: (list, options?) => current.formatList(list, options),
+    listFormat: (options) => current.listFormat(options),
     locale: () => current.locale(),
     onChange: (listener) => current.onChange(listener),
     localize: (locale?) => current.localize(locale),

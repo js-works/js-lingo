@@ -1,66 +1,18 @@
 // @vitest-environment jsdom
 /**
- * Tests for the custom-element integration: the reactive controller, the imperative
- * `provideI18n`, and the `<i18n-provider>` element — including the protocol edge
- * cases (late values, provider switching, unsubscribe identity).
+ * Tests for the imperative `provideI18n` and the declarative `<i18n-provider>` element
+ * — the two ways to answer a Context Community Protocol request — including the
+ * protocol edge cases (late values, provider switching, unsubscribe identity).
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createI18n, createNamespace } from "../i18n.js";
-import type { I18n, LocaleSource } from "../i18n.js";
+import { createI18n } from "../i18n.js";
+import type { I18n } from "../i18n.js";
 import { I18nProviderElement, i18nContext, provideI18n } from "./i18n-provider.js";
-import type { I18nController } from "./i18n-controller.js";
-
-const greetingTexts = createNamespace({ key: "greeting", defaults: { hello: "Hello" } });
-const datePickerTexts = createNamespace({
-  key: "date-picker",
-  defaults: {
-    today: "Today",
-    range: (params: { count: number }, rangeI18n: I18n) =>
-      `${rangeI18n.formatNumber(params.count)} days`,
-  },
-});
 
 function createFixedLocaleI18n(locale: string): I18n {
   return createI18n({ localeSource: { getLocale: () => locale } });
-}
-
-/** A locale source with a controllable locale and change channel. */
-function createMutableLocaleSource(initial: string): LocaleSource & {
-  setLocale(locale: string): void;
-} {
-  let currentLocale = initial;
-  let listeners: (() => void)[] = [];
-  return {
-    getLocale: () => currentLocale,
-    onChange: (listener) => {
-      listeners.push(listener);
-      return () => {
-        listeners = listeners.filter((it) => it !== listener);
-      };
-    },
-    setLocale: (locale) => {
-      currentLocale = locale;
-      for (const listener of [...listeners]) listener();
-    },
-  };
-}
-
-/** A minimal Lit-style host element. */
-class TestHostElement extends HTMLElement {
-  requestUpdate = vi.fn();
-  controllers: I18nController[] = [];
-  addController(controller: I18nController): void {
-    this.controllers.push(controller);
-  }
-}
-customElements.define("test-host", TestHostElement);
-
-function mountHost(parent: Element = document.body): TestHostElement {
-  const host = document.createElement("test-host") as TestHostElement;
-  parent.appendChild(host);
-  return host;
 }
 
 function mountProvider(parent: Element = document.body): I18nProviderElement {
@@ -69,7 +21,13 @@ function mountProvider(parent: Element = document.body): I18nProviderElement {
   return provider;
 }
 
-/** A handcrafted protocol event (the event class itself is not exported). */
+function mountHost(parent: Element = document.body): HTMLDivElement {
+  const host = document.createElement("div");
+  parent.appendChild(host);
+  return host;
+}
+
+/** A handcrafted protocol event (the event class itself is not exported here). */
 function createContextRequest(
   callback: (value: I18n, unsubscribe?: () => void) => void,
   subscribe?: boolean,
@@ -114,7 +72,7 @@ describe("provideI18n", () => {
     stopProviding();
   });
 
-  it("ignores foreign contexts and events without callback", () => {
+  it("ignores foreign contexts and events without a callback", () => {
     const stopProviding = provideI18n(document.body, createFixedLocaleI18n("de"));
     const answers = vi.fn();
 
@@ -155,14 +113,12 @@ describe("<i18n-provider>", () => {
     const providerElement = mountProvider();
     providerElement.i18n = createFixedLocaleI18n("de");
     const inner = mountHost(providerElement);
-    const outerAnswers = vi.fn();
     const stopProviding = provideI18n(document.body, createFixedLocaleI18n("en"));
-    void outerAnswers;
 
     const answers = vi.fn();
     inner.dispatchEvent(createContextRequest(answers, undefined)); // non-subscribe branch
     expect(answers).toHaveBeenCalledTimes(1);
-    expect((answers.mock.calls[0][0] as I18n).getLocale()).toBe("de"); // inner claimed, outer never saw it
+    expect((answers.mock.calls[0][0] as I18n).locale()).toBe("de"); // inner claimed, outer never saw it
     expect(answers.mock.calls[0][1]).toBeUndefined();
     stopProviding();
   });
@@ -243,14 +199,25 @@ describe("<i18n-provider>", () => {
     providerElement.i18n = createFixedLocaleI18n("de");
     const inner = mountHost(providerElement);
 
-    providerElement.remove(); // triggers disconnectedCallback; inner moves out with it
-    document.body.appendChild(providerElement); // reconnect wrapper but detach listener check:
-    providerElement.disconnectedCallback(); // force-remove listener while staying in DOM
+    providerElement.disconnectedCallback(); // force-remove listener while staying in the DOM
 
     const answers = vi.fn();
     inner.dispatchEvent(createContextRequest(answers, undefined));
     expect(answers).toHaveBeenCalledWith(outerI18n, undefined); // outer serves, inner is deaf
     stopProviding();
+  });
+
+  it("reconnecting re-attaches the listener", () => {
+    const providerElement = mountProvider();
+    providerElement.i18n = createFixedLocaleI18n("de");
+    const inner = mountHost(providerElement);
+
+    providerElement.remove(); // triggers disconnectedCallback
+    document.body.appendChild(providerElement); // triggers connectedCallback again
+
+    const answers = vi.fn();
+    inner.dispatchEvent(createContextRequest(answers, undefined));
+    expect((answers.mock.calls[0][0] as I18n).locale()).toBe("de");
   });
 
   it("ignores foreign contexts", () => {

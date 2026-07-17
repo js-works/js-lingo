@@ -13,10 +13,13 @@
  *
  * `useI18n` returns the current instance plus a bound `t` (scoped to the given
  * namespace, or fully-qualified without one). It re-renders on locale AND text
- * changes by minting a fresh statically-bound sibling per change — the dynamic
- * instance is reference-stable and would otherwise make useSyncExternalStore bail
- * out. The statically-bound snapshot also guarantees a consistent locale across one
- * render pass (tearing-safe under concurrent rendering).
+ * changes by minting a fresh statically-bound sibling per change, SHALLOW-COPIED so
+ * its identity is guaranteed fresh even when `localize()` returns an already-cached
+ * sibling (e.g. a text-only change with the locale unchanged) — the dynamic instance
+ * is reference-stable and a repeated-locale sibling is cache-stable, and either would
+ * otherwise make useSyncExternalStore bail out on an unchanged reference. The
+ * statically-bound snapshot also guarantees a consistent locale across one render
+ * pass (tearing-safe under concurrent rendering).
  *
  * JSX-free on purpose (uses `createElement as h`), so this file is a plain `.ts`.
  */
@@ -61,8 +64,15 @@ const I18nContext = createContext<I18n>(createI18n());
 function I18nProvider({ i18n, children }: { i18n: I18n; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Bridge to the DOM/context protocol for custom elements in the subtree.
-  useEffect(() => (ref.current ? provideI18n(ref.current, i18n) : undefined), [i18n]);
+  // Bridge to the DOM/context protocol for custom elements in the subtree. `ref.current`
+  // is guaranteed attached here (React commits refs before running passive effects, and
+  // the wrapper div below is rendered unconditionally) — the null check is a defensive
+  // fallback with no reachable path under normal rendering; see i18n-react.null-ref.test.ts
+  // for the one way (mocking `useRef`) it can be exercised at all.
+  useEffect(() => {
+    /* v8 ignore next */
+    return ref.current ? provideI18n(ref.current, i18n) : undefined;
+  }, [i18n]);
 
   return h(
     I18nContext.Provider,
@@ -89,13 +99,16 @@ function useI18n(namespace?: Namespace<any>): { i18n: I18n; t: (...args: any[]) 
   const source = useContext(I18nContext);
 
   // A store whose snapshot IDENTITY changes on every locale/text change, so
-  // useSyncExternalStore actually re-renders (the dynamic instance is reference-stable).
+  // useSyncExternalStore actually re-renders. Shallow-copied: `localize()` caches
+  // siblings per canonical locale, so a text-only change (locale unchanged) would
+  // otherwise hand back the SAME cached sibling and be mistaken for "nothing changed".
   const store = useMemo(() => {
-    let snapshot: I18n = source.localize(source.getLocale());
+    const freshSnapshot = (): I18n => ({ ...source.localize(source.locale()) });
+    let snapshot: I18n = freshSnapshot();
     return {
       subscribe: (onStoreChange: () => void) =>
         source.onChange(() => {
-          snapshot = source.localize(source.getLocale()); // fresh identity per event
+          snapshot = freshSnapshot(); // fresh identity per event, always
           onStoreChange();
         }),
       getSnapshot: () => snapshot,

@@ -1,13 +1,25 @@
-# js-gossip 🗣️
+# js-lingo
+
+![GitHub License](https://img.shields.io/github/license/js-widget/js-lingo)
+![GitHub Release](https://img.shields.io/github/v/release/js-widget/js-lingo)
+![GitHub Tag](https://img.shields.io/github/v/tag/js-widget/js-lingo)
+![GitHub Last Commit](https://img.shields.io/github/last-commit/js-widget/js-lingo)
+![GitHub Repo Size](https://img.shields.io/github/repo-size/js-widget/js-lingo)
+![GitHub Stars](https://img.shields.io/github/stars/js-widget/js-lingo)
+![GitHub Issues](https://img.shields.io/github/issues/js-widget/js-lingo)
+![GitHub Pull Requests](https://img.shields.io/github/issues-pr/js-widget/js-lingo)
+![npm](https://img.shields.io/npm/v/js-lingo)
+![npm Bundle Size](https://img.shields.io/bundlephobia/min/js-lingo)
+![npm Bundle Size (min+gzip)](https://img.shields.io/bundlephobia/minzip/js-lingo)
 
 > Type-safe internationalization that spreads the word in every language — and never garbles your message behind your back.
 
-Every app has things to say. **js-gossip** is the friend who repeats them perfectly in whatever language the room is speaking. Components ship with something sensible to say out of the box, translators retell it, and your app just relays the current version to whoever's listening.
+Every app has things to say. **js-lingo** is the friend who repeats them perfectly in whatever language the room is speaking. Components ship with something sensible to say out of the box, translators retell it, and your app just relays the current version to whoever's listening.
 
 No global config to wrestle. No mystery singletons. No "why is this string suddenly `undefined`." Just a tiny, strongly-typed facade you create once and hand around.
 
 ```ts
-import { createI18n, createNamespace } from "js-gossip";
+import { createI18n, createNamespace } from "js-lingo";
 
 const greetingTexts = createNamespace({
   key: "greeting",
@@ -29,9 +41,9 @@ That's a fully working, fully typed component library. No locale files required 
 
 ## Table of contents
 
-- [Why js-gossip](#why-js-gossip)
+- [Why js-lingo](#why-js-lingo)
 - [Install](#install)
-- [The 60-second tour](#the-60-second-tour)
+- [The 90-second tour](#the-90-second-tour)
 - [Who does what: the three roles](#who-does-what-the-three-roles)
 - [Adding translations](#adding-translations)
 - [Loading translations (including lazily)](#loading-translations-including-lazily)
@@ -43,6 +55,7 @@ That's a fully working, fully typed component library. No locale files required 
 - [Middlewares: the friend who embellishes every story](#middlewares-the-friend-who-embellishes-every-story)
 - [Bring your own backend](#bring-your-own-backend)
 - [Ask for only what you need](#ask-for-only-what-you-need)
+- [Message Format (ICU)](#message-format-icu)
 - [React](#react)
 - [Web Components](#web-components)
 - [Resolution order, in one breath](#resolution-order-in-one-breath)
@@ -52,7 +65,7 @@ That's a fully working, fully typed component library. No locale files required 
 
 ---
 
-## Why js-gossip
+## Why js-lingo
 
 - **Zero-config components.** A namespace ships with its own default texts. A component library works the moment it's imported — no app cooperation, no setup step, no empty-string surprises.
 - **Type-safe to the core.** Keys are checked. Parameters are checked, per key. `text(greetingTexts, "welcome")` won't compile without `{ name }`; `text(greetingTexts, "helo")` won't compile at all.
@@ -67,23 +80,27 @@ That's a fully working, fully typed component library. No locale files required 
 ## Install
 
 ```bash
-npm install js-gossip
+npm install js-lingo
 # or
-pnpm add js-gossip
+pnpm add js-lingo
 # or
-yarn add js-gossip
+yarn add js-lingo
 ```
 
-Framework glue lives in its own packages, so you only pull in what you use:
+That's the whole install — everything below lives in this one package as separate **entry points** (subpath imports), so you only pull in the code you actually use:
 
-```bash
-npm install js-gossip/react           # React bindings
-npm install js-gossip/web-components   # Custom-element / Lit bindings
+```ts
+import { createI18n } from "js-lingo"; // the core — dependency-free, always available
+import { msg } from "js-lingo/message-format"; // ICU MessageFormat helper (bundles intl-messageformat)
+import { I18nProvider, useI18n } from "js-lingo/react"; // React bindings (react is an optional peer)
+import { i18nController } from "js-lingo/web-components"; // custom-element / Lit bindings (dependency-free)
 ```
+
+Nothing to install separately for `./message-format` or `./web-components` — both are dependency-free and bundle whatever they need. `./react` is the only entry point with an external dependency: `react` (`>=18`), declared as an optional peer.
 
 ---
 
-## The 60-second tour
+## The 90-second tour
 
 ```ts
 import {
@@ -93,14 +110,14 @@ import {
   bundleTexts,
   allTexts,
   someTexts,
-} from "js-gossip";
+} from "js-lingo";
 
-// 1. A component author defines a namespace with defaults.
+// 1. A component author defines a text namespace with default text (in en-US).
 const greetingTexts = createNamespace({
   key: "greeting",
   defaults: {
     hello: "Hello",
-    welcome: (params: { name: string }, i18n) => `Welcome, ${params.name}!`,
+    welcome: (p: { name: string }) => `Welcome, ${p.name}!`,
   },
 });
 
@@ -135,22 +152,22 @@ const i18n = createI18n({
 i18n.text(greetingTexts, "hello"); // "Hello"  (or "Hallo" when the locale is German)
 i18n.text(greetingTexts, "welcome", { name: "Ada" }); // parameters are typed to the key
 
-// The Intl formatting core comes for free, always in the active locale.
-i18n.formatNumber(1234.56); // "1,234.56"   (de: "1.234,56", de-CH: "1'234.56")
-i18n.formatDateTime(new Date(), { dateStyle: "long" }); // "July 17, 2026"  (de/de-CH: "17. Juli 2026")
-
 // Prefer not to repeat the namespace? Bind it once.
 const t = i18n.bindTexts(greetingTexts);
 t("hello"); // scoped to `greetingTexts`
 t("welcome", { name: "Ada" });
 t(otherTexts, "key"); // still fully-qualified for anything else
+
+// The Intl formatting core comes for free, always in the active locale.
+i18n.formatNumber(1234.56); // "1,234.56" (de: "1.234,56", de-CH: "1'234.56")
+i18n.formatDateTime(new Date(), { dateStyle: "long" }); // "July 17, 2026" (de/de-CH: "17. Juli 2026")
 ```
 
 ---
 
 ## Who does what: the three roles
 
-js-gossip keeps three jobs strictly separate — so a component library, a translation pack, and an app can each evolve without stepping on the others.
+js-lingo keeps three jobs strictly separate — so a component library, a translation pack, and an app can each evolve without stepping on the others.
 
 | Role                   | Ships                                                                  | Tool                                     |
 | ---------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
@@ -167,7 +184,7 @@ The translation author's job ends at "here is a bundle." How that bundle reaches
 A **namespace** defines both the _shape_ (which keys exist and what parameters they take) and the _texts of last resort_. Translations for other locales are attached separately, and there are two ways to do it:
 
 ```ts
-import { someTexts, allTexts } from "js-gossip";
+import { someTexts, allTexts } from "js-lingo";
 
 // `someTexts` — partial. Missing keys fall back through the pipeline to the default.
 someTexts(greetingTexts, { hello: "Bonjour" });
@@ -318,7 +335,7 @@ type HttpKey = `httpError.${Digit}${Digit}${Digit}`; // exactly three digits
 A middleware wraps the **whole** resolution — including namespace defaults and nested lookups. That's the layer for cross-cutting concerns:
 
 ```ts
-import type { TextMiddleware } from "js-gossip";
+import type { TextMiddleware } from "js-lingo";
 
 // Pseudo-localization: wrap every resolved string, defaults included, for testing.
 const pseudo: TextMiddleware = (req, ctx, next) => {
@@ -345,7 +362,7 @@ const i18n = createI18n({ middlewares: [pseudo, reportMisses] }); // index 0 is 
 Already invested in another i18n library? A **text source** is just an object with a `resolve` function and an optional change channel:
 
 ```ts
-import type { TextSource } from "js-gossip";
+import type { TextSource } from "js-lingo";
 
 const myAdapter: TextSource = {
   resolve: (request, context) => lookInMyBackend(request) ?? undefined, // string ("" ok) = hit, undefined = miss
@@ -364,7 +381,7 @@ The one rule: return `undefined` for a genuine miss — do _real_ miss detection
 `I18n` is assembled from small, single-concern capability types, so a helper can depend on just the slice it uses instead of the whole facade:
 
 ```ts
-import type { NumberFormatter, DateTimeFormatter } from "js-gossip";
+import type { NumberFormatter, DateTimeFormatter } from "js-lingo";
 
 function priceLine(fmt: NumberFormatter & DateTimeFormatter, price: number, when: Date) {
   return `${fmt.formatNumber(price)} — ${fmt.formatDateTime(when)}`;
@@ -375,12 +392,44 @@ The pieces: `TextAccess`, `LocaleAware`, `ChangeNotifier`, `NumberFormatter`, `D
 
 ---
 
+## Message Format (ICU)
+
+`js-lingo/message-format` gives you `msg`, a tagged template that turns an ICU MessageFormat pattern into a `TranslationFn` — a drop-in value anywhere a namespace default or a translation is expected (defaults, `someTexts`, `allTexts`).
+
+```ts
+import { createNamespace } from "js-lingo";
+import { msg } from "js-lingo/message-format";
+
+const cartTexts = createNamespace({
+  key: "cart",
+  defaults: {
+    itemCount: msg<{ count: number }>`{count, plural, one {# item} other {# items}}`,
+    greeting: msg<{ name: string }>`Hello, {name}!`,
+  },
+});
+
+i18n.text(cartTexts, "itemCount", { count: 1 }); // "1 item"
+i18n.text(cartTexts, "itemCount", { count: 3 }); // "3 items"
+```
+
+A few things worth knowing:
+
+- The ICU syntax lives **in the string itself** — `{name}`, `{count, plural, ...}`, `{count, number}`, `{date, date, long}`, and so on go directly in the template. `${expr}` interpolation is deliberately not supported (and not needed — ICU already has its own placeholder syntax); `msg` only accepts a fully static pattern.
+- The params type can't be inferred from the pattern (it's just a string to TypeScript), so name it explicitly: `` msg<{ count: number }>`...` ``.
+- Formatting follows the same locale rule as everywhere else: a message resolved via cross-language fallback formats numbers/plurals/dates in the locale it was **actually found in**, not the one originally requested.
+- Compiled `IntlMessageFormat` instances are cached per `(locale, pattern)` pair and reused for the life of the process.
+- This entry point bundles `intl-messageformat` itself — no extra install, no peer dependency.
+
+Anything ICU doesn't cover is still just a plain `(params, i18n) => string` — a hand-written `TranslationFn` works exactly the same way; `msg` is a convenience for the ICU dialect specifically, not a replacement for it.
+
+---
+
 ## React
 
-`js-gossip/react` distributes the instance through context and re-renders on every change for you. One hook — `useI18n` — hands you a lookup function `t` and the full `i18n` facade. Pass a namespace to scope `t` to it; pass nothing and `t` stays fully-qualified.
+`js-lingo/react` distributes the instance through context and re-renders on every change for you. One hook — `useI18n` — hands you a lookup function `t` and the full `i18n` facade. Pass a namespace to scope `t` to it; pass nothing and `t` stays fully-qualified.
 
 ```tsx
-import { I18nProvider, useI18n } from "js-gossip/react";
+import { I18nProvider, useI18n } from "js-lingo/react";
 import { greetingTexts } from "./greeting";
 
 function App({ i18n }) {
@@ -411,15 +460,17 @@ function Clock() {
 
 Locale switch, lazy French bundle finishing its download — either way, the components that called `useI18n` update automatically.
 
+`I18nProvider` does double duty from one `display: contents` wrapper: it feeds React context (for `useI18n`) **and** bridges the same instance onto the DOM Context Community Protocol, so any web component from `js-lingo/web-components` rendered inside the subtree (e.g. a Lit element using `i18nController`) picks it up automatically — no separate wiring needed when React merely hosts custom elements. Pass a **stable** instance (module scope, or memoized) — one created inline on every render resets the change-tracking machinery and thrashes re-rendering.
+
 ---
 
 ## Web Components
 
-`js-gossip/web-components` brings the same to custom elements. Standalone elements work with zero setup thanks to namespace defaults; when you _do_ want to distribute a shared instance, `i18nController` attaches a Lit reactive controller that keeps each element subscribed and re-rendering:
+`js-lingo/web-components` brings the same facade to custom elements, dependency-free (works with, but does not require, Lit), built on the [Context Community Protocol](https://github.com/webcomponents-cg/community-protocols) for distribution. Standalone elements work with zero setup thanks to namespace defaults; when you _do_ want to distribute a shared instance, `i18nController` attaches a Lit reactive controller that keeps each element subscribed and re-rendering:
 
 ```ts
 import { LitElement, html } from "lit";
-import { i18nController } from "js-gossip/web-components";
+import { i18nController } from "js-lingo/web-components";
 import { greetingTexts } from "./greeting";
 
 class GreetingBanner extends LitElement {
@@ -432,7 +483,43 @@ class GreetingBanner extends LitElement {
 customElements.define("greeting-banner", GreetingBanner);
 ```
 
-Because every namespace carries its defaults, a `greeting-banner` dropped onto any page renders correct English immediately — even with no i18n instance provided at all. Provide one (via the Context Community Protocol) and it upgrades in place.
+Because every namespace carries its defaults, a `greeting-banner` dropped onto any page renders correct English immediately — even with no i18n instance provided at all. Provide one and it upgrades in place. `i18nController` resolves its instance in three stages, first match wins:
+
+1. an explicit `i18n` argument — `i18nController(this, myInstance)`, for tests or special cases
+2. a context provider up the tree — re-requested on every connect, and re-subscribed live if the provider swaps instances
+3. the internal zero-config fallback — so the element never breaks, translated or not
+
+`localize(locale)` on the controller hands out a facade of the CURRENT instance; if a provider swaps the instance later, previously returned facades keep pointing at the old one — prefer calling through the controller itself in render code.
+
+### Distributing an instance
+
+Two ways to answer a controller's context request:
+
+**Imperative** — `provideI18n(target, i18n)` on any `EventTarget`, typically mounted once at the app root:
+
+```ts
+import { provideI18n } from "js-lingo/web-components";
+
+const stopProviding = provideI18n(document.body, appI18n); // app-wide
+// later, if you ever need to: stopProviding();
+```
+
+**Declarative** — the `<i18n-provider>` custom element, registered automatically the first time `js-lingo/web-components` is imported (guarded against double registration and non-browser environments):
+
+```ts
+import "js-lingo/web-components"; // registers <i18n-provider>
+import { html } from "lit";
+
+html`
+  <i18n-provider .i18n=${appI18n}>
+    <greeting-banner></greeting-banner>
+  </i18n-provider>
+`;
+```
+
+`<i18n-provider>` is layout-neutral (`display: contents`), so it never affects your page layout. Setting `.i18n` to a new instance re-notifies every subscribed consumer; setting it to `null` goes quiet until a value arrives again — consumers just keep waiting, they don't need to be re-mounted. A request that arrives before `.i18n` is ever set is left unclaimed, so an outer provider further up the tree can still answer it in the meantime.
+
+Because the protocol's only identity mechanism is the context key (`Symbol.for("i18n-facade.I18n")`, exported as `i18nContext`), this interoperates with any protocol-compliant counterpart — e.g. an `@lit/context` provider using the same key — across separate bundle copies and versions. Building your own provider or consumer against the raw protocol? `i18nContext` and the `ContextRequestEvent` class are exported for exactly that.
 
 ---
 
@@ -451,7 +538,7 @@ middlewares  →  text source  →  namespace defaults  →  bare key
 
 ## TypeScript setup
 
-js-gossip is written in TypeScript and ships its types. Two `tsconfig` notes:
+js-lingo is written in TypeScript and ships its types. Two `tsconfig` notes:
 
 ```jsonc
 {
@@ -495,10 +582,30 @@ Runtime support for everything used here is solid in all current engines — the
 | `localize(locale?)`                                         | A sibling bound to another locale (or back to dynamic).              |
 | `onChange(listener)`                                        | Subscribe to locale/text changes. Returns an idempotent unsubscribe. |
 
+**`js-lingo/message-format`**
+
+| Export             | Purpose                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `` msg`pattern` `` | ICU MessageFormat pattern → `TranslationFn<P>`. Specify `P` explicitly: `` msg<{ count: number }>`...` ``. |
+
+**`js-lingo/react`**
+
+| Export                | Purpose                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `<I18nProvider i18n>` | Provides the instance via React context, and bridges it to any web components in the subtree.   |
+| `useI18n(namespace?)` | `{ i18n, t }` — `t` scoped to `namespace` if given, else fully-qualified. Re-renders on change. |
+
+**`js-lingo/web-components`**
+
+| Export                                | Purpose                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `i18nController(host, i18n?)`         | Lit-style reactive controller — IS an `I18n`, re-renders `host` on change.         |
+| `provideI18n(target, i18n)`           | Imperative context-request provider on any `EventTarget`. Returns an unsubscribe.  |
+| `<i18n-provider .i18n=${...}>`        | Declarative provider custom element (registered on import). Layout-neutral.        |
+| `i18nContext` / `ContextRequestEvent` | Context Community Protocol primitives, for a custom provider/consumer of your own. |
+
 ---
 
 ## License
 
-MIT © the js-gossip contributors
-
-<sub>Now go spread the word. 🗣️</sub>
+MIT © the js-lingo contributors

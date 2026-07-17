@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Tests for the custom-element integration: the reactive controller, the imperative
- * `provideI18n`, and the `<i18n-provider>` element — including the protocol edge
- * cases (late values, provider switching, unsubscribe identity).
+ * Tests for the reactive controller (`i18nController`): instance resolution order,
+ * reactivity, delegation of the full I18n surface, and the protocol edge cases (late
+ * values, provider switching, unsubscribe identity).
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -70,27 +70,10 @@ function mountProvider(parent: Element = document.body): I18nProviderElement {
   return provider;
 }
 
-/** A handcrafted protocol event (the event class itself is not exported). */
-function createContextRequest(
-  callback: (value: I18n, unsubscribe?: () => void) => void,
-  subscribe?: boolean,
-  context: unknown = i18nContext,
-): Event {
-  return Object.assign(new Event("context-request", { bubbles: true, composed: true }), {
-    context,
-    callback,
-    subscribe,
-  });
-}
-
 afterEach(() => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
 });
-
-// -------------------------------------------------------------------
-// i18nController
-// -------------------------------------------------------------------
 
 describe("i18nController", () => {
   it("registers itself with the host and is frozen", () => {
@@ -108,7 +91,7 @@ describe("i18nController", () => {
 
     const controllerI18n = i18nController(host, explicitI18n);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("de"); // not "fr"
+    expect(controllerI18n.locale()).toBe("de"); // not "fr"
     stopProviding();
   });
 
@@ -117,8 +100,18 @@ describe("i18nController", () => {
     const host = mountHost();
     const controllerI18n = i18nController(host);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("it"); // <html lang> via zero-config fallback
-    expect(controllerI18n.getText(greetingTexts, "hello")).toBe("Hello");
+    expect(controllerI18n.locale()).toBe("it"); // <html lang> via zero-config fallback
+    expect(controllerI18n.text(greetingTexts, "hello")).toBe("Hello");
+  });
+
+  it("reuses the same internal fallback instance across independent controllers", () => {
+    const hostA = mountHost();
+    const hostB = mountHost();
+    const controllerA = i18nController(hostA);
+    const controllerB = i18nController(hostB);
+    controllerA.hostConnected();
+    controllerB.hostConnected();
+    expect(controllerA.localize("fr")).toBe(controllerB.localize("fr"));
   });
 
   it("adopts an instance provided up the tree on connect", () => {
@@ -128,7 +121,7 @@ describe("i18nController", () => {
 
     const controllerI18n = i18nController(host);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("fr");
+    expect(controllerI18n.locale()).toBe("fr");
     stopProviding();
   });
 
@@ -140,7 +133,7 @@ describe("i18nController", () => {
 
     mutableSource.setLocale("en");
     expect(host.requestUpdate).toHaveBeenCalledTimes(1);
-    expect(controllerI18n.getLocale()).toBe("en");
+    expect(controllerI18n.locale()).toBe("en");
   });
 
   it("stops re-rendering and unsubscribes from the provider on disconnect", () => {
@@ -151,7 +144,7 @@ describe("i18nController", () => {
 
     const controllerI18n = i18nController(host);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("de");
+    expect(controllerI18n.locale()).toBe("de");
     host.requestUpdate.mockClear(); // adopting the provider instance already re-rendered once
 
     controllerI18n.hostDisconnected();
@@ -159,7 +152,7 @@ describe("i18nController", () => {
     expect(host.requestUpdate).not.toHaveBeenCalled();
 
     providerElement.i18n = createFixedLocaleI18n("fr"); // provider subscription must be gone
-    expect(controllerI18n.getLocale()).toBe("en"); // still the OLD instance's (live) locale
+    expect(controllerI18n.locale()).toBe("en"); // still the OLD instance's (live) locale
   });
 
   it("delegates the full I18n surface to the current instance", () => {
@@ -168,16 +161,37 @@ describe("i18nController", () => {
     controllerI18n.hostConnected();
 
     expect(controllerI18n.formatNumber(1234.5)).toBe(new Intl.NumberFormat("de-DE").format(1234.5));
+    expect(controllerI18n.formatNumberRange(1, 5)).toBe(
+      new Intl.NumberFormat("de-DE").formatRange(1, 5),
+    );
+    expect(controllerI18n.numberFormat()).toBe(controllerI18n.numberFormat()); // shared cache
+
     const someDate = new Date(Date.UTC(2026, 0, 2));
+    const otherDate = new Date(Date.UTC(2026, 0, 10));
     expect(controllerI18n.formatDateTime(someDate, { timeZone: "UTC" })).toBe(
       new Intl.DateTimeFormat("de-DE", { timeZone: "UTC" }).format(someDate),
     );
-    expect(controllerI18n.numberFormat()).toBe(controllerI18n.numberFormat()); // shared cache
+    expect(controllerI18n.formatDateTimeRange(someDate, otherDate, { timeZone: "UTC" })).toBe(
+      new Intl.DateTimeFormat("de-DE", { timeZone: "UTC" }).formatRange(someDate, otherDate),
+    );
     expect(controllerI18n.dateTimeFormat({ timeZone: "UTC" }).resolvedOptions().timeZone).toBe(
       "UTC",
     );
-    expect(controllerI18n.getText(datePickerTexts, "range", { count: 2 })).toBe("2 days");
-    expect(controllerI18n.localize("fr").getLocale()).toBe("fr");
+
+    expect(controllerI18n.formatRelativeTime(-3, "day")).toBe(
+      new Intl.RelativeTimeFormat("de-DE").format(-3, "day"),
+    );
+    expect(controllerI18n.relativeTimeFormat()).toBe(controllerI18n.relativeTimeFormat());
+
+    expect(controllerI18n.formatList(["a", "b"])).toBe(
+      new Intl.ListFormat("de-DE").format(["a", "b"]),
+    );
+    expect(controllerI18n.listFormat()).toBe(controllerI18n.listFormat());
+
+    expect(controllerI18n.text(datePickerTexts, "range", { count: 2 })).toBe("2 days");
+    expect(controllerI18n.hasText(greetingTexts, "hello")).toBe(false); // no textSource configured
+    expect(controllerI18n.hasText(greetingTexts, "hello", true)).toBe(true); // default hit
+    expect(controllerI18n.localize("fr").locale()).toBe("fr");
 
     const changes = vi.fn();
     const unsubscribe = controllerI18n.onChange(changes);
@@ -197,10 +211,8 @@ describe("i18nController", () => {
     expect(greetingLookup(datePickerTexts, "range", { count: 3 })).toBe("3 days"); // fully-qualified
 
     // switch the instance via the provider: previously bound lookups must follow
-    const echoLocaleTexts = createNamespace({ key: "echo", defaults: { hello: "Hello" } });
-    void echoLocaleTexts;
     providerElement.i18n = createFixedLocaleI18n("fr-CH");
-    expect(controllerI18n.getLocale()).toBe("fr-CH");
+    expect(controllerI18n.locale()).toBe("fr-CH");
     expect(greetingLookup(datePickerTexts, "range", { count: 1234.5 })).toBe(
       `${new Intl.NumberFormat("fr-CH").format(1234.5)} days`,
     );
@@ -213,11 +225,11 @@ describe("i18nController", () => {
     controllerI18n.hostConnected();
 
     providerElement.i18n = createFixedLocaleI18n("de");
-    expect(controllerI18n.getLocale()).toBe("de");
+    expect(controllerI18n.locale()).toBe("de");
     providerElement.i18n = createFixedLocaleI18n("fr");
-    expect(controllerI18n.getLocale()).toBe("fr");
+    expect(controllerI18n.locale()).toBe("fr");
     providerElement.i18n = createFixedLocaleI18n("es"); // regression: third switch still works
-    expect(controllerI18n.getLocale()).toBe("es");
+    expect(controllerI18n.locale()).toBe("es");
     expect(host.requestUpdate).toHaveBeenCalledTimes(3);
   });
 
@@ -229,10 +241,10 @@ describe("i18nController", () => {
 
     const controllerI18n = i18nController(host);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("en"); // outer served meanwhile
+    expect(controllerI18n.locale()).toBe("en"); // outer served meanwhile
 
     innerProvider.i18n = createFixedLocaleI18n("de"); // late inner value wins
-    expect(controllerI18n.getLocale()).toBe("de");
+    expect(controllerI18n.locale()).toBe("de");
     stopProviding();
   });
 
@@ -247,7 +259,7 @@ describe("i18nController", () => {
     host.requestUpdate.mockClear();
 
     controllerI18n.hostConnected(); // provider re-answers with the SAME instance
-    expect(controllerI18n.getLocale()).toBe("de");
+    expect(controllerI18n.locale()).toBe("de");
     expect(host.requestUpdate).not.toHaveBeenCalled(); // switchTo(same) is a no-op
   });
 
@@ -262,7 +274,7 @@ describe("i18nController", () => {
     host.requestUpdate.mockClear();
 
     innerProvider.i18n = createFixedLocaleI18n("de"); // late answer while disconnected
-    expect(controllerI18n.getLocale()).toBe("de"); // adopted for the next connect
+    expect(controllerI18n.locale()).toBe("de"); // adopted for the next connect
     expect(host.requestUpdate).not.toHaveBeenCalled(); // but no render while disconnected
     stopProviding();
   });
@@ -280,7 +292,7 @@ describe("i18nController", () => {
     const host = mountHost();
     const controllerI18n = i18nController(host);
     controllerI18n.hostConnected();
-    expect(controllerI18n.getLocale()).toBe("pt");
+    expect(controllerI18n.locale()).toBe("pt");
     expect(() => controllerI18n.hostDisconnected()).not.toThrow();
     document.body.removeEventListener("context-request", bareProvider);
   });

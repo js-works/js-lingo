@@ -25,9 +25,9 @@ describe("defaultLocaleSource (client, <html lang> monitor)", () => {
   it("reads the live lang attribute", () => {
     setDocumentLang("de-CH");
     const i18n = createI18n({ localeSource: defaultLocaleSource() });
-    expect(i18n.getLocale()).toBe("de-CH");
+    expect(i18n.locale()).toBe("de-CH");
     setDocumentLang("fr");
-    expect(i18n.getLocale()).toBe("fr");
+    expect(i18n.locale()).toBe("fr");
   });
 
   it("falls back to defaultLocale when the attribute is absent (and ignores serverSide)", () => {
@@ -35,15 +35,15 @@ describe("defaultLocaleSource (client, <html lang> monitor)", () => {
     const i18n = createI18n({
       localeSource: defaultLocaleSource({ defaultLocale: "ja", serverSide: "de" }),
     });
-    expect(i18n.getLocale()).toBe("ja"); // serverSide plays no role on the client
-    expect(createI18n({ localeSource: defaultLocaleSource() }).getLocale()).toBe("en-US");
+    expect(i18n.locale()).toBe("ja"); // serverSide plays no role on the client
+    expect(createI18n({ localeSource: defaultLocaleSource() }).locale()).toBe("en-US");
   });
 
   it("is the zero-config default on the client", () => {
     setDocumentLang("it");
     const i18n = createI18n();
-    expect(i18n.getLocale()).toBe("it");
-    expect(i18n.getText(greetingTexts, "hello")).toBe("Hello");
+    expect(i18n.locale()).toBe("it");
+    expect(i18n.text(greetingTexts, "hello")).toBe("Hello");
   });
 
   it("notifies on lang changes and honors unsubscribe", async () => {
@@ -60,7 +60,7 @@ describe("defaultLocaleSource (client, <html lang> monitor)", () => {
     await tick();
     expect(keptChanges).toHaveBeenCalledTimes(1);
     expect(removedChanges).not.toHaveBeenCalled();
-    expect(i18n.getLocale()).toBe("en");
+    expect(i18n.locale()).toBe("en");
 
     setDocumentLang("fr");
     await tick();
@@ -80,5 +80,29 @@ describe("defaultLocaleSource (client, <html lang> monitor)", () => {
     await tick();
     expect(firstListener).toHaveBeenCalledTimes(1);
     expect(secondListener).not.toHaveBeenCalled();
+  });
+
+  it("does not detect the client when window has no MutationObserver", () => {
+    const original = globalThis.window.MutationObserver;
+    // @ts-expect-error simulating a browser-like global without MutationObserver support
+    delete globalThis.window.MutationObserver;
+    try {
+      const i18n = createI18n({ localeSource: defaultLocaleSource({ defaultLocale: "ja" }) });
+      expect(i18n.locale()).toBe("ja"); // fell through to the non-client branch
+    } finally {
+      globalThis.window.MutationObserver = original;
+    }
+  });
+
+  it("does not detect the client when document is unavailable even though window is", () => {
+    const original = globalThis.document;
+    // @ts-expect-error simulating a global without a `document` (the detection branch itself)
+    delete globalThis.document;
+    try {
+      const i18n = createI18n({ localeSource: defaultLocaleSource({ defaultLocale: "ja" }) });
+      expect(i18n.locale()).toBe("ja"); // fell through to the non-client branch
+    } finally {
+      globalThis.document = original;
+    }
   });
 });
