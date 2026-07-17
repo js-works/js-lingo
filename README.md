@@ -4,12 +4,6 @@
 ![GitHub License](https://img.shields.io/github/license/js-works/js-lingo)
 ![GitHub Last Commit](https://img.shields.io/github/last-commit/js-works/js-lingo)
 ![GitHub Repo Size](https://img.shields.io/github/repo-size/js-works/js-lingo)
-![GitHub Issues](https://img.shields.io/github/issues/js-works/js-lingo)
-![GitHub Pull Requests](https://img.shields.io/github/issues-pr/js-works/js-lingo)
-![npm Bundle Size](https://img.shields.io/bundlephobia/min/js-lingo)
-![npm Bundle Size (min+gzip)](https://img.shields.io/bundlephobia/minzip/js-lingo)
-
-> Type-safe internationalization that spreads the word in every language — and never garbles your message behind your back.
 
 Every app has things to say. **js-lingo** is the friend who repeats them perfectly in whatever language the room is speaking. Components ship with something sensible to say out of the box, translators retell it, and your app just relays the current version to whoever's listening.
 

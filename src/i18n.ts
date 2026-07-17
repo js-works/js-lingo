@@ -1,5 +1,5 @@
 /**
- * A lightweight, type-safe i18n facade.
+ * A lightweight, type-safe i18n facade (also usable as standalone i18n library).
  *
  * The facade type `I18n` fronts a fixed Intl formatting core (the only part that is
  * deliberately NOT configurable) and delegates everything else to two swappable
