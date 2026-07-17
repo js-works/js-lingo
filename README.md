@@ -1,14 +1,11 @@
 # js-lingo
 
+![npm](https://img.shields.io/npm/v/js-lingo)
 ![GitHub License](https://img.shields.io/github/license/js-works/js-lingo)
-![GitHub Release](https://img.shields.io/github/v/release/js-works/js-lingo)
-![GitHub Tag](https://img.shields.io/github/v/tag/js-works/js-lingo)
 ![GitHub Last Commit](https://img.shields.io/github/last-commit/js-works/js-lingo)
 ![GitHub Repo Size](https://img.shields.io/github/repo-size/js-works/js-lingo)
-![GitHub Stars](https://img.shields.io/github/stars/js-works/js-lingo)
 ![GitHub Issues](https://img.shields.io/github/issues/js-works/js-lingo)
 ![GitHub Pull Requests](https://img.shields.io/github/issues-pr/js-works/js-lingo)
-![npm](https://img.shields.io/npm/v/js-lingo)
 ![npm Bundle Size](https://img.shields.io/bundlephobia/min/js-lingo)
 ![npm Bundle Size (min+gzip)](https://img.shields.io/bundlephobia/minzip/js-lingo)
 
