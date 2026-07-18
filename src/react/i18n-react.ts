@@ -37,9 +37,17 @@ import {
 import type { ReactNode } from "react";
 import { createI18n } from "../index.js";
 import { provideI18n } from "../web-components/index.js";
-import type { BoundTexts, I18n, Namespace, TextMap, UnboundTexts } from "../index.js";
+import type {
+  BoundTexts,
+  I18n,
+  LoadingAware,
+  Namespace,
+  TextMap,
+  TextSource,
+  UnboundTexts,
+} from "../index.js";
 
-export { I18nProvider, useI18n };
+export { I18nProvider, useI18n, useI18nSuspense };
 
 // -------------------------------------------------------------------
 // # Context (private)
@@ -126,4 +134,34 @@ function useI18n(namespace?: Namespace<any>): { i18n: I18n; t: (...args: any[]) 
   );
 
   return { i18n, t };
+}
+
+/**
+ * Like `useI18n(namespace)`, but SUSPENDS while the given source is still loading that
+ * namespace in the active locale — so the component renders only real translations,
+ * never the flash-of-default-text that the plain hook allows.
+ *
+ *   const { t } = useI18nSuspense(appTextSource, dialogTexts); // inside a <Suspense fallback={…}>
+ *
+ * Takes the `TextSource` explicitly (the one you passed to `createI18n`) rather than
+ * reading loading state off the facade — loading is a source concern, kept off the lean,
+ * sync `I18n` type. The source must implement the `LoadingAware` capability
+ * (`isLoading`/`whenReady`), i.e. an adapter over an on-demand backend; `defaultTextSource`
+ * does not, so it isn't a valid argument here (use plain `useI18n` with it).
+ *
+ * Mechanism: while `source.isLoading(locale, namespace)` it throws
+ * `source.whenReady(locale, namespace)` — the promise React's Suspense awaits, retrying
+ * the render once it settles. `whenReady` resolves (never rejects) even on a failed load,
+ * so the boundary always un-suspends; after a failure the texts fall through to the
+ * namespace defaults.
+ */
+function useI18nSuspense<T extends TextMap>(
+  source: TextSource & LoadingAware,
+  namespace: Namespace<T>,
+): { i18n: I18n; t: BoundTexts<T> } {
+  const result = useI18n(namespace);
+  if (source.isLoading(result.i18n.locale(), namespace)) {
+    throw source.whenReady(result.i18n.locale(), namespace); // Suspense catches this; retries on settle
+  }
+  return result;
 }

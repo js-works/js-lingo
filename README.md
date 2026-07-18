@@ -45,6 +45,7 @@ That's a fully working, fully typed component library. No locale files required 
 - [Dynamic keys](#dynamic-keys)
 - [Middlewares: the friend who embellishes every story](#middlewares-the-friend-who-embellishes-every-story)
 - [Bring your own backend](#bring-your-own-backend)
+- [Async sources: `isLoading` and `whenReady`](#async-sources-isloading-and-whenready)
 - [Ask for only what you need](#ask-for-only-what-you-need)
 - [Message Format (ICU)](#message-format-icu)
 - [React](#react)
@@ -367,6 +368,55 @@ The one rule: return `undefined` for a genuine miss — do _real_ miss detection
 
 ---
 
+## Async sources: `isLoading` and `whenReady`
+
+The built-in `defaultTextSource` is _reconcile-later_: `text()` always returns something right now (a default until the real translation lands), and `onChange` fires when late bundles arrive so your UI re-renders. That's perfect when a brief flash of default text is fine — and it's why `defaultTextSource` needs no async API at all.
+
+But a source that fetches bundles from a backend on demand can do better: it can let a caller **wait** for exactly the texts it needs. That's the optional async-loading capability. Implement two more methods on your `TextSource`, both scoped to a `(locale, namespace)` pair:
+
+```ts
+import type { TextSource } from "js-lingo";
+
+// Sketch of an adapter over i18next, which already loads by namespace and exposes promises.
+function i18nextSource(i18next: import("i18next").i18n): TextSource {
+  return {
+    resolve: (request) =>
+      i18next.exists(request.key, { ns: request.namespace.key, lng: request.locale })
+        ? i18next.t(request.key, { ns: request.namespace.key, lng: request.locale, ...(request.params as object) })
+        : undefined,
+    // NEW — the async-loading capability:
+    isLoading: (locale, namespace) => !i18next.hasResourceBundle(locale, namespace.key),
+    whenReady: (locale, namespace) =>
+      // loadLanguages fetches the locale (and its namespaces) WITHOUT switching the active
+      // language — never call changeLanguage here, that's a global side effect.
+      i18next.loadLanguages(locale).then(() => i18next.loadNamespaces(namespace.key)),
+    onChange: (listener) => {
+      i18next.on("loaded", listener);
+      return () => i18next.off("loaded", listener);
+    },
+  };
+}
+```
+
+This capability lives on the **`TextSource`**, not on the `I18n` facade — deliberately. `I18n` is the component-facing type, and it stays lean and synchronous; loading is a source-and-app concern. So you consume the capability through the **source you own** (the one you passed to `createI18n`), typed as `TextSource & LoadingAware`:
+
+```ts
+const source = i18nextSource(myI18next); // TextSource & LoadingAware
+const i18n = createI18n({ textSource: source });
+
+source.isLoading("de", greetingTexts); // boolean: is this (locale, namespace) still being fetched?
+await source.whenReady("de", greetingTexts); // resolves once that load has settled
+```
+
+Two contract points make this safe to build on:
+
+- **`whenReady` resolves on _settle_, success or failure — it never rejects.** A failed load simply falls through to the namespace defaults (one broken locale never wedges the app), and anything waiting on it — a React Suspense boundary, say — always eventually un-suspends.
+- **`whenReady(locale, namespace)` resolves once `isLoading(locale, namespace)` would be `false`.** So "wait, then read" is race-free.
+
+`LoadingAware` is optional: a source may implement both methods or neither (`defaultTextSource` implements neither). A component doing plain `text()` / `useI18n` never sees any of this — it renders defaults and reconciles later regardless. The capability only matters when the app chooses to *wait*: at an app-level gate, or via [`useI18nSuspense`](#react) for the React binding that turns it into flash-free rendering.
+
+---
+
 ## Ask for only what you need
 
 `I18n` is assembled from small, single-concern capability types, so a helper can depend on just the slice it uses instead of the whole facade:
@@ -379,7 +429,7 @@ function priceLine(fmt: NumberFormatter & DateTimeFormatter, price: number, when
 }
 ```
 
-The pieces: `TextAccess`, `LocaleAware`, `ChangeNotifier`, `NumberFormatter`, `DateTimeFormatter`, `RelativeTimeFormatter`, `ListFormatter`. Pass a full `I18n` wherever any combination is expected — it satisfies them all.
+The pieces: `TextAccess`, `LocaleAware`, `ChangeNotifier`, `NumberFormatter`, `DateTimeFormatter`, `RelativeTimeFormatter`, `ListFormatter`. Pass a full `I18n` wherever any combination is expected — it satisfies them all. (`LoadingAware` is deliberately _not_ part of `I18n` — it's an optional `TextSource` capability; see [Async sources](#async-sources-isloading-and-whenready).)
 
 ---
 
@@ -452,6 +502,36 @@ function Clock() {
 Locale switch, lazy French bundle finishing its download — either way, the components that called `useI18n` update automatically.
 
 `I18nProvider` does double duty from one `display: contents` wrapper: it feeds React context (for `useI18n`) **and** bridges the same instance onto the DOM Context Community Protocol, so any web component from `js-lingo/web-components` rendered inside the subtree (e.g. a Lit element using `i18nController`) picks it up automatically — no separate wiring needed when React merely hosts custom elements. Pass a **stable** instance (module scope, or memoized) — one created inline on every render resets the change-tracking machinery and thrashes re-rendering.
+
+### Suspense: never render the wrong text
+
+`useI18n` shows the default text for one render, then re-renders with the real translation when it arrives. When you'd rather show a fallback and render **only** real translations — no flash of default — reach for `useI18nSuspense`. It's `useI18n(namespace)` that suspends while the source is still loading that namespace. Because loading lives on the source (not the facade — see [Async sources](#async-sources-isloading-and-whenready)), you pass the **source you own** as the first argument:
+
+```tsx
+import { Suspense } from "react";
+import { useI18nSuspense } from "js-lingo/react";
+import { greetingTexts } from "./greeting";
+import { appTextSource } from "./i18n-setup"; // your TextSource & LoadingAware
+
+function Greeting({ name }: { name: string }) {
+  const { t } = useI18nSuspense(appTextSource, greetingTexts); // suspends until ready
+  return <h1>{t("welcome", { name })}</h1>;
+}
+
+function App({ i18n }) {
+  return (
+    <I18nProvider i18n={i18n}>
+      <Suspense fallback={<Spinner />}>
+        <Greeting name="Ada" />
+      </Suspense>
+    </I18nProvider>
+  );
+}
+```
+
+It requires a source that implements the [async-loading capability](#async-sources-isloading-and-whenready) — the `TextSource & LoadingAware` type enforces this at compile time, so `defaultTextSource` (which doesn't implement it) isn't a valid argument; with a sync source you'd just use plain `useI18n`. Under the hood it throws `source.whenReady(locale, namespace)` while `source.isLoading(locale, namespace)`; because `whenReady` resolves even on a failed load, the boundary always un-suspends (a failure falls through to the namespace defaults).
+
+Passing the source into every suspending component is app-author work by design — the same role that owns the source and the `<Suspense>` boundaries. A reusable component that knows nothing about the app should use plain `useI18n` and let the app gate it from the outside.
 
 ---
 
@@ -585,6 +665,7 @@ Runtime support for everything used here is solid in all current engines — the
 | --------------------- | ----------------------------------------------------------------------------------------------- |
 | `<I18nProvider i18n>` | Provides the instance via React context, and bridges it to any web components in the subtree.   |
 | `useI18n(namespace?)` | `{ i18n, t }` — `t` scoped to `namespace` if given, else fully-qualified. Re-renders on change. |
+| `useI18nSuspense(source, namespace)` | Like `useI18n(namespace)`, but suspends while `source` (a `TextSource & LoadingAware`) is loading that namespace. |
 
 **`js-lingo/web-components`**
 

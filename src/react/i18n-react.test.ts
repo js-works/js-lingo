@@ -5,14 +5,14 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, createElement as h } from "react";
+import { act, createElement as h, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 
 import { createI18n, createNamespace } from "../i18n.js";
-import type { I18n, LocaleSource } from "../i18n.js";
+import type { I18n, LoadingAware, LocaleSource, TextSource } from "../i18n.js";
 import { i18nContext } from "../web-components/index.js";
-import { I18nProvider, useI18n } from "./i18n-react.js";
+import { I18nProvider, useI18n, useI18nSuspense } from "./i18n-react.js";
 
 // React 19's act() warns unless this is set, absent a testing-library environment.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -222,5 +222,82 @@ describe("I18nProvider", () => {
     const answers = vi.fn();
     dispatchContextRequest(marker, answers); // detached from the document, but the listener itself must be gone
     expect(answers).not.toHaveBeenCalled();
+  });
+});
+
+describe("useI18nSuspense", () => {
+  /** An async source that misses (→ defaults) while loading, then serves after `settle()`. */
+  function createControllableAsyncSource(hit: string) {
+    let loading = true;
+    const listeners = new Set<() => void>();
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolvePromise) => {
+      resolveReady = resolvePromise;
+    });
+    const source: TextSource & LoadingAware = {
+      resolve: (request) =>
+        loading ? undefined : request.key === "hello" ? hit : undefined,
+      isLoading: () => loading,
+      whenReady: () => ready,
+      onChange: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+    };
+    const settle = (): void => {
+      loading = false;
+      resolveReady();
+      for (const listener of [...listeners]) listener();
+    };
+    return { source, settle };
+  }
+
+  it("suspends while loading, then renders the real texts (never the default)", async () => {
+    const { source, settle } = createControllableAsyncSource("Hallo");
+    const appI18n = createI18n({ localeSource: { getLocale: () => "de" }, textSource: source });
+
+    function Display() {
+      const { t } = useI18nSuspense(source, greetingTexts);
+      return h("span", { id: "out" }, t("hello"));
+    }
+    mount(
+      Suspense,
+      { fallback: h("span", { id: "fallback" }, "loading…") },
+      h(I18nProvider, { i18n: appI18n }, h(Display, null)),
+    );
+
+    // Suspended: fallback shown, the default "Hello" is never painted.
+    expect(container.querySelector("#fallback")).not.toBeNull();
+    expect(container.querySelector("#out")).toBeNull();
+
+    await act(async () => {
+      settle();
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
+    });
+
+    expect(container.querySelector("#fallback")).toBeNull();
+    expect(container.querySelector("#out")!.textContent).toBe("Hallo");
+  });
+
+  it("does not suspend when the source reports the namespace already ready", () => {
+    const readySource: TextSource & LoadingAware = {
+      resolve: (request) => (request.key === "hello" ? "Hallo" : undefined),
+      isLoading: () => false,
+      whenReady: () => Promise.resolve(),
+    };
+    const appI18n = createI18n({ localeSource: { getLocale: () => "de" }, textSource: readySource });
+
+    function Display() {
+      const { t } = useI18nSuspense(readySource, greetingTexts);
+      return h("span", { id: "out" }, t("hello"));
+    }
+    mount(
+      Suspense,
+      { fallback: h("span", { id: "fallback" }, "loading…") },
+      h(I18nProvider, { i18n: appI18n }, h(Display, null)),
+    );
+
+    expect(container.querySelector("#fallback")).toBeNull();
+    expect(container.querySelector("#out")!.textContent).toBe("Hallo");
   });
 });

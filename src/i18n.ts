@@ -90,6 +90,7 @@ export type {
   I18n,
   I18nConfig,
   ListFormatter,
+  LoadingAware,
   Locale,
   LocaleAware,
   LocaleSource,
@@ -226,10 +227,33 @@ type TextResolver = (request: TextRequest, context: ResolveContext) => string | 
 // any fallback-locale combinator or namespace defaults. Third-party adapters that
 // cannot efficiently support it can omit it — `hasText(false)` will return false when
 // it is absent.
+//
+// This is exactly the contract the CORE consumes (`resolve`/`resolveExact`/`onChange`).
+// The optional async-loading capability (`LoadingAware`) is deliberately NOT folded in
+// here: the core never calls it. A source that supports waiting layers it on separately
+// — its type is `TextSource & LoadingAware` — and only consumers that gate (the React
+// `useI18nSuspense`, or an app-level Suspense/await gate) require that intersection.
 type TextSource = Readonly<{
   resolve: TextResolver;
   resolveExact?(locale: Locale, namespace: Namespace<any>, key: TextKey): string | undefined;
   onChange?(listener: ChangeListener): Unsubscribe; // texts changed
+}>;
+
+// The OPTIONAL async-loading capability, layered onto a `TextSource` (as
+// `TextSource & LoadingAware`) by sources that fetch bundles on demand — a custom
+// backend, an i18next adapter, ... — scoped to a `(locale, namespace)` pair so callers
+// can wait for exactly the texts they need. Consumed only by gates (the React
+// `useI18nSuspense`, or app-level waiting), NEVER by the core pipeline or the `I18n`
+// facade: loading is a source + app concern, kept off the lean, sync core types. Sources
+// that are always synchronously available (`defaultTextSource`) simply don't implement it.
+//
+//   - `isLoading` — is a real translation for `(locale, namespace)` still being fetched?
+//   - `whenReady` — resolves once `isLoading(locale, namespace)` would be false; resolves
+//     (never rejects) on both success AND failure, so a Suspense gate always un-suspends
+//     and a failed load just falls through to the namespace defaults.
+type LoadingAware = Readonly<{
+  isLoading(locale: Locale, namespace: Namespace<any>): boolean;
+  whenReady(locale: Locale, namespace: Namespace<any>): Promise<void>;
 }>;
 
 // Decoration, distinct from replacement. Index 0 = outermost (runs first, delegates
@@ -331,7 +355,8 @@ type ListFormatter = Readonly<{
 
 // THE central type, assembled from the capability types above. `createI18n` returns
 // the dynamic instance (locale follows the LocaleSource); `localize(locale)` returns
-// a statically bound sibling.
+// a statically bound sibling. Deliberately sync and lean: async loading is a TextSource
+// concern (see `LoadingAware`), not part of the component-facing facade.
 type I18n = TextAccess &
   LocaleAware &
   ChangeNotifier &
