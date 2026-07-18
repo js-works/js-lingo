@@ -75,7 +75,7 @@ function I18nProvider({ i18n, children }: { i18n: I18n; children: ReactNode }) {
   // Bridge to the DOM/context protocol for custom elements in the subtree. `ref.current`
   // is guaranteed attached here (React commits refs before running passive effects, and
   // the wrapper div below is rendered unconditionally) — the null check is a defensive
-  // fallback with no reachable path under normal rendering; see i18n-react.null-ref.test.ts
+  // fallback with no reachable path under normal rendering; see provider-ref.test.ts
   // for the one way (mocking `useRef`) it can be exercised at all.
   useEffect(() => {
     /* v8 ignore next */

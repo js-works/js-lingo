@@ -6,7 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createI18n, createNamespace, defaultLocaleSource } from "./i18n.js";
+import { createI18n, createNamespace, defaultLocaleSource } from "./core.js";
 
 const greetingTexts = createNamespace({ key: "greeting", defaults: { hello: "Hello" } });
 

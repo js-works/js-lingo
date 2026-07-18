@@ -3,10 +3,10 @@
  * base, registration skipped) so isomorphic bundles do not crash on the server.
  */
 import { describe, expect, it } from "vitest";
-import { i18nController } from "./i18n-controller.js";
-import { I18nProviderElement, i18nContext, provideI18n } from "./i18n-provider.js";
+import { i18nController } from "./controller.js";
+import { I18nProviderElement, i18nContext, provideI18n } from "./provider.js";
 
-describe("i18n-controller (server-side import)", () => {
+describe("controller (server-side import)", () => {
   it("loads without a DOM and exports its surface", () => {
     expect(typeof i18nController).toBe("function");
     expect(typeof provideI18n).toBe("function");

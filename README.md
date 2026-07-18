@@ -5,6 +5,9 @@
 ![GitHub Last Commit](https://img.shields.io/github/last-commit/js-works/js-lingo)
 ![GitHub Repo Size](https://img.shields.io/github/repo-size/js-works/js-lingo)
 
+> [!WARNING]
+> **Early stage — not production-ready.** js-lingo is in active, early development. The API may change without notice, and it has not been battle-tested in real-world applications. **Do not use it in production yet.** It's shared for evaluation, experimentation, and feedback — use it at your own risk.
+
 Every app has things to say. **js-lingo** is the friend who repeats them perfectly in whatever language the room is speaking. Components ship with something sensible to say out of the box, translators retell it, and your app just relays the current version to whoever's listening.
 
 No global config to wrestle. No mystery singletons. No "why is this string suddenly `undefined`." Just a tiny, strongly-typed facade you create once and hand around.

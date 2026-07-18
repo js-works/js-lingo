@@ -1,7 +1,7 @@
 /**
  * Tests for the i18n facade (node environment — the server-side branches of
  * `defaultLocaleSource` and everything that does not need a DOM).
- * The client-side branches (<html lang> monitor) live in i18n.dom.test.ts.
+ * The client-side branches (<html lang> monitor) live in core.dom.test.ts.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,9 +14,9 @@ import {
   defaultLocaleSource,
   defaultTextSource,
   someTexts,
-} from "./i18n.js";
+} from "./core.js";
 
-import type { I18n, LocaleSource, TextBundle, TextMiddleware, TextSource } from "./i18n.js";
+import type { I18n, LocaleSource, TextBundle, TextMiddleware, TextSource } from "./core.js";
 
 // -------------------------------------------------------------------
 // Shared fixtures

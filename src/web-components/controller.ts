@@ -22,9 +22,9 @@
  * double registration and non-browser environments).
  */
 
-import { createI18n } from "../i18n.js";
-import type { I18n, Unsubscribe } from "../i18n.js";
-import { i18nContext, ContextRequestEvent } from "./i18n-provider.js";
+import { createI18n } from "../core.js";
+import type { I18n, Unsubscribe } from "../core.js";
+import { i18nContext, ContextRequestEvent } from "./provider.js";
 
 export { i18nController };
 export type { I18nController, I18nControllerHost };

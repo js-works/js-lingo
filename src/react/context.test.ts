@@ -9,10 +9,10 @@ import { act, createElement as h, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 
-import { createI18n, createNamespace } from "../i18n.js";
-import type { I18n, LoadingAware, LocaleSource, TextSource } from "../i18n.js";
+import { createI18n, createNamespace } from "../core.js";
+import type { I18n, LoadingAware, LocaleSource, TextSource } from "../core.js";
 import { i18nContext } from "../web-components/index.js";
-import { I18nProvider, useI18n, useI18nSuspense } from "./i18n-react.js";
+import { I18nProvider, useI18n, useI18nSuspense } from "./context.js";
 
 // React 19's act() warns unless this is set, absent a testing-library environment.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -136,7 +136,7 @@ describe("useI18n", () => {
     const pendingBundle = new Promise((resolvePromise) => {
       resolveBundle = resolvePromise;
     });
-    const { defaultTextSource, someTexts } = await import("../i18n.js");
+    const { defaultTextSource, someTexts } = await import("../core.js");
     const appI18n = createI18n({
       localeSource: { getLocale: () => "de" },
       textSource: defaultTextSource({ textBundles: [pendingBundle as never] }),

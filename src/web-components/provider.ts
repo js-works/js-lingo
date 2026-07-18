@@ -1,4 +1,4 @@
-import type { I18n, Unsubscribe } from "../i18n";
+import type { I18n, Unsubscribe } from "../core";
 
 export { i18nContext, provideI18n, ContextRequestEvent, I18nProviderElement };
 

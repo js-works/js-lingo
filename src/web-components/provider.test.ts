@@ -7,9 +7,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createI18n } from "../i18n.js";
-import type { I18n } from "../i18n.js";
-import { I18nProviderElement, i18nContext, provideI18n } from "./i18n-provider.js";
+import { createI18n } from "../core.js";
+import type { I18n } from "../core.js";
+import { I18nProviderElement, i18nContext, provideI18n } from "./provider.js";
 
 function createFixedLocaleI18n(locale: string): I18n {
   return createI18n({ localeSource: { getLocale: () => locale } });

@@ -7,11 +7,11 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createI18n, createNamespace } from "../i18n.js";
-import type { I18n, LocaleSource } from "../i18n.js";
-import { i18nController } from "./i18n-controller.js";
-import { provideI18n, i18nContext, I18nProviderElement } from "./i18n-provider.js";
-import type { I18nController } from "./i18n-controller.js";
+import { createI18n, createNamespace } from "../core.js";
+import type { I18n, LocaleSource } from "../core.js";
+import { i18nController } from "./controller.js";
+import { provideI18n, i18nContext, I18nProviderElement } from "./provider.js";
+import type { I18nController } from "./controller.js";
 
 const greetingTexts = createNamespace({ key: "greeting", defaults: { hello: "Hello" } });
 const datePickerTexts = createNamespace({

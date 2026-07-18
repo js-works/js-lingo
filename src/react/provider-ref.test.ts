@@ -5,7 +5,7 @@
  * branch is not reachable through normal rendering (the wrapper div's ref is always
  * attached before the effect runs) — this file mocks `useRef` to force it anyway, so
  * the fallback path itself (skip `provideI18n`, no crash) is verified rather than
- * left untested. Kept separate from i18n-react.test.ts so the mock does not affect
+ * left untested. Kept separate from context.test.ts so the mock does not affect
  * the rest of the suite.
  */
 
@@ -26,8 +26,8 @@ describe("I18nProvider (ref.current unavailable at effect time)", () => {
   it("does not crash and skips provideI18n", async () => {
     const { act, createElement: h } = await import("react");
     const { createRoot } = await import("react-dom/client");
-    const { createI18n } = await import("../i18n.js");
-    const { I18nProvider } = await import("./i18n-react.js");
+    const { createI18n } = await import("../core.js");
+    const { I18nProvider } = await import("./context.js");
 
     const container = document.createElement("div");
     document.body.appendChild(container);

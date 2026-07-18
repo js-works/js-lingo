@@ -1,1 +1,1 @@
-export * from "./i18n-react.js";
+export * from "./context.js";

@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createI18n, createNamespace } from "../i18n.js";
-import { msg } from "./index.js";
+import { createI18n, createNamespace } from "../core.js";
+import { msg } from "./msg.js";
 
 describe("msg (ICU MessageFormat)", () => {
   it("formats a static message with an interpolated placeholder", () => {
