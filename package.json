@@ -35,9 +35,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
-    "loc": "sloc src/index.ts",
-    "loc:src": "sloc . --exclude 'node_modules|coverage|dist|\\.test\\.'",
-    "loc:json": "sloc src/index.ts --format json"
+    "loc": "sloc src/core.ts",
+    "loc:src": "sloc . --exclude 'node_modules|coverage|dist|\\.test\\.|\\.config\\.'",
+    "loc:json": "sloc src/core.ts --format json"
   },
   "repository": {
     "type": "git",

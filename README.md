@@ -164,6 +164,7 @@ i18n.formatDateTime(new Date(), { dateStyle: "long" }); // "July 17, 2026" (de/d
 
 js-lingo keeps three jobs strictly separate — so a component library, a translation pack, and an app can each evolve without stepping on the others.
 
+<!-- prettier-ignore -->
 | Role                   | Ships                                                                  | Tool                                     |
 | ---------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
 | **Component author**   | A namespace with default texts                                         | `createNamespace`                        |
@@ -632,6 +633,7 @@ Runtime support for everything used here is solid in all current engines — the
 
 **Create & configure**
 
+<!-- prettier-ignore -->
 | Function                                       | Purpose                                                          |
 | ---------------------------------------------- | ---------------------------------------------------------------- |
 | `createI18n(config?)`                          | Build the instance. Zero-config works.                           |
@@ -643,6 +645,7 @@ Runtime support for everything used here is solid in all current engines — the
 
 **On the `I18n` instance**
 
+<!-- prettier-ignore -->
 | Member                                                      | Purpose                                                              |
 | ----------------------------------------------------------- | -------------------------------------------------------------------- |
 | `text(ns, key[, params])`                                   | Resolve a translation. Params are typed per key.                     |
@@ -658,20 +661,23 @@ Runtime support for everything used here is solid in all current engines — the
 
 **`js-lingo/message-format`**
 
+<!-- prettier-ignore -->
 | Export             | Purpose                                                                                                    |
 | ------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `` msg`pattern` `` | ICU MessageFormat pattern → `TranslationFn<P>`. Specify `P` explicitly: `` msg<{ count: number }>`...` ``. |
 
 **`js-lingo/react`**
 
-| Export                | Purpose                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| `<I18nProvider i18n>` | Provides the instance via React context, and bridges it to any web components in the subtree.   |
-| `useI18n(namespace?)` | `{ i18n, t }` — `t` scoped to `namespace` if given, else fully-qualified. Re-renders on change. |
+<!-- prettier-ignore -->
+| Export                               | Purpose                                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `<I18nProvider i18n>`                | Provides the instance via React context, and bridges it to any web components in the subtree.                     |
+| `useI18n(namespace?)`                | `{ i18n, t }` — `t` scoped to `namespace` if given, else fully-qualified. Re-renders on change.                   |
 | `useI18nSuspense(source, namespace)` | Like `useI18n(namespace)`, but suspends while `source` (a `TextSource & LoadingAware`) is loading that namespace. |
 
 **`js-lingo/web-components`**
 
+<!-- prettier-ignore -->
 | Export                                | Purpose                                                                            |
 | ------------------------------------- | ---------------------------------------------------------------------------------- |
 | `i18nController(host, i18n?)`         | Lit-style reactive controller — IS an `I18n`, re-renders `host` on change.         |
